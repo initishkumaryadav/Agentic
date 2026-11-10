@@ -6,7 +6,7 @@
 - Create and EC2 instance > docker container > mcr.microsoft.com/mssql/server:2022-latest
 - Spin up the Legacy MSSQL Server
 ```
-docker run -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=FdeEnterprisePass123!" -p 1433:1433 --name legacy-mssql -d mcr.microsoft.com/mssql/server:2022-latest
+docker run -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=jailogic123@" -p 1533:1533 --name jailogic-mssql -d mcr.microsoft.com/mssql/server:2022-latest
 
 # or multi-line in windows 
 docker run -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=FdeEnterprisePass123!" ^
@@ -41,13 +41,13 @@ We need to query the database
    - Add connection
    - Fill the below :
    ```
-   Profile Name: legacy-mssql
+   Profile Name: jailogic-mssql
    Server name*: localhost
-   Port: 1433
+   Port: 1533
    Trust server certificate: 🟩 Check this box / turn it ON (Crucial for Docker)
    Authentication type*: SQL Login
    User name*: sa
-   Password*: FdeEnterprisePass123!
+   Password*: jailogic9452@
    Save Password: 🟩 Check this box
    Database name: Type master (or leave it on "Select a database")
    Encrypt: ⚠️ Change this from Mandatory to Optional (or False)
