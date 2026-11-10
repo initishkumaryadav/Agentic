@@ -99,8 +99,8 @@ docker run -v mssql_data:/var/opt/mssql \
 * Port: 1433
 * Trust server certificate: 🟩 Check this box / Turn it ON
 * Authentication type*: SQL Login
-* User name*: USR_FDE_RO
-* Password*: AgentPassword2026!
+* User name*: llm
+* Password*: Logicalone@
 * Save Password: 🟩 Check this box / Turn it ON
 * Database name: Type master (or click "Select a database" and select master)
 * Encrypt: Change this from Mandatory to Optional (or False)

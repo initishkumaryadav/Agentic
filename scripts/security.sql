@@ -29,7 +29,7 @@ SELECT
     DELAY_PROB_DEC AS [Delay_Probability],
     PRT_CNG_LVL AS [Port_Congestion_Level],
     RT_RSK_IDX AS [Route_Risk_Index]
-FROM dbo.TBL_SC_FLEET_HIST_RAW;
+FROM dbo.RAW_DATA;
 GO
 
 
@@ -38,6 +38,6 @@ CREATE USER llm FOR LOGIN llm;
 GO
 
 GRANT SELECT ON llm_views.Active_FLEET TO llm;
-DENY SELECT ON dbo.TBL_SC_FLEET_HIST_RAW TO llm;
+DENY SELECT ON dbo.RAW_DATA TO llm;
 DENY INSERT, UPDATE, DELETE, ALTER ON SCHEMA::dbo TO llm;
 GO

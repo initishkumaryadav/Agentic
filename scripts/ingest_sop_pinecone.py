@@ -13,7 +13,6 @@ from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharac
 from langchain_pinecone import PineconeVectorStore
 from langchain_core.documents import Document
 
-# suppress the windows symlink warning noise completely
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "true"
 
 
@@ -74,9 +73,6 @@ else:
 TARGET_DIMENSION = len(embeddings.embed_query("dimension probe"))
 print(f"Embedding dimension detected: {TARGET_DIMENSION}")
 
-# =================================================================
-# 3. PINECONE PROVISIONING
-# =================================================================
 print(f"Connecting to Pinecone Index Target: [{INDEX_NAME}]")
 pc = Pinecone(api_key=PINECONE_API_KEY)
 existing_indexes = pc.list_indexes().names()
@@ -153,7 +149,6 @@ def parse_and_chunk_document(doc_path: Path) -> list[Document]:
                 row_index = int(idx) if isinstance(idx, Integral) else str(idx)
                 raw_chunks.append(Document(page_content=row_text, metadata={"row_index": row_index}))
 
-    # sanity check: drop empty chunks
     valid_chunks = []
     for chunk in raw_chunks:
         clean_text = chunk.page_content.strip()
@@ -162,10 +157,6 @@ def parse_and_chunk_document(doc_path: Path) -> list[Document]:
             valid_chunks.append(chunk)
     return valid_chunks
 
-
-# ======================================================================================
-# 5. INCREMENTAL PIPELINE WITH BATCHING
-# ======================================================================================
 policy_dir = projectRoot / "data" / "policy"
 policy_dir.mkdir(parents=True, exist_ok=True)
 
@@ -202,11 +193,10 @@ for file_name, file_path in current_files.items():
     cache_modified = True
 
     try:
-        # remove old vectors of this file before re-ingesting
         try:
             index_client.delete(filter={"source_file": {"$eq": file_name}})
         except Exception:
-            pass  # nothing to delete yet (e.g. first ingestion)
+            pass 
 
         chunks = parse_and_chunk_document(file_path)
         if not chunks:
@@ -233,12 +223,8 @@ for file_name, file_path in current_files.items():
 
     except Exception as e:
         print(f"Error during ingestion of {file_name}: {e}")
-        updated_cache.pop(file_name, None)  # not cached -> retried next run
+        updated_cache.pop(file_name, None)  
 
-
-# =================================================================
-# 6. SYNC HASH CACHE
-# =================================================================
 if cache_modified:
     with open(HASH_CACHE_FILE, "w") as f:
         json.dump(updated_cache, f, indent=4)

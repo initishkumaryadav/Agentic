@@ -47,8 +47,6 @@ elif AGENT_LLM_SETTING == "GEMINI":
         )
 
 else:  
-    # Must be a tool-calling chat model (e.g. qwen3:8b, llama3.1:8b).
-    # Guardian/safety models only emit risk scores and cannot drive the agent.
     OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
     print(f"we are using a ollama local model for reasoning ({OLLAMA_MODEL})...")
     from langchain_ollama import ChatOllama

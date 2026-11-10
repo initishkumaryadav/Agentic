@@ -87,7 +87,7 @@ with st.sidebar:
     
     st.markdown("---")
     st.caption(f"Session Token: `{st.session_state.thread_id[:8]}...`")
-    st.markdown(f"**Reasoning Architecture:** `{os.getenv('Agent_llm', 'DEEPSEEK')}`")
+    st.markdown(f"**Reasoning Architecture:** `{os.getenv('Agent_llm', 'Gemini')}`")
     
     st.markdown("---")
     if st.button("Purge Dispatch Workspace Session", use_container_width=True):
@@ -107,7 +107,7 @@ if app_mode == "Dispatch Console":
             if "traces" in entry:
                 for trace in entry["traces"]:
                     if trace["type"] == "tool_input":
-                        st.markdown(f"**Intent Recognized:** `{trace['name']}`")
+                        st.markdown(f"Intent Recognized:** `{trace['name']}`")
                         with st.expander(f"View Generated Input ({trace['name']})", expanded=False):
                             st.json(trace["args"])
                     elif trace["type"] == "tool_output":
@@ -138,7 +138,7 @@ if app_mode == "Dispatch Console":
                         if node_name == "reasoner":
                             latest_msg = node_state["messages"][-1]
                             
-                            # A. Intercept Tool Call Requests (Inputs)
+                            
                             if hasattr(latest_msg, "tool_calls") and latest_msg.tool_calls:
                                 status.update(label="Agent generated tool parameters...")
                                 for tool_call in latest_msg.tool_calls:
@@ -159,7 +159,7 @@ if app_mode == "Dispatch Console":
                                         content=json.dumps(tool_call['args'])
                                     )
                             
-                            # B. Intercept Final Generation
+                            
                             if latest_msg.content:
                                 final_response = latest_msg.content
                                 status.update(label="Generating Operational Resolution Report...")
@@ -209,7 +209,7 @@ elif app_mode == "Security & Audit Logs":
     st.title("Enterprise Agent Audit Trail")
     st.caption("Secure database inspection of llm_views.AgentAuditLog")
     
-    st.markdown("### Database Authorization Gate")
+    st.markdown("Database Authorization Gate")
     st.markdown("Enter high-privilege administrative credentials (defined in `.env` as `SQL_ADMIN_USER`) to query audit logs.")
     
     with st.form("admin_auth_form"):
@@ -227,7 +227,7 @@ elif app_mode == "Security & Audit Logs":
         
         if input_user == expected_admin_user and input_pass == expected_admin_pass:
             try:
-                # Build an isolated admin connection string for viewing data
+                
                 admin_params = urllib.parse.quote_plus(
                     "DRIVER={ODBC Driver 18 for SQL Server};"
                     f"SERVER={db_host},{db_port};"

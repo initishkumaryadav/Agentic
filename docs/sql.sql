@@ -1,2 +1,2 @@
-select top 5 * from dbo.TBL_SC_FLEET_HIST_RAW
+select top 5 * from dbo.Raw_DATA
 
