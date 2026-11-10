@@ -23,7 +23,8 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            cd Agentic
+            cd /home/ubuntu/Agentic
             git pull origin main
             source venv/bin/activate
+            pip install -r requirements.txt
             sudo systemctl restart streamlit
