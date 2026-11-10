@@ -47,7 +47,7 @@ elif AGENT_LLM_SETTING == "GEMINI":
         )
 
 else:  
-    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
+    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma2:2b")
     print(f"we are using a ollama local model for reasoning ({OLLAMA_MODEL})...")
     from langchain_ollama import ChatOllama
     llm = ChatOllama(model=OLLAMA_MODEL, temperature=0, num_predict=1024)
