@@ -47,10 +47,17 @@ elif AGENT_LLM_SETTING == "GEMINI":
         )
 
 else:  
-    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma2:2b")
+    # qwen2.5 supports native tool calling in Ollama (gemma2 does not).
+    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:0.5b")
     print(f"we are using a ollama local model for reasoning ({OLLAMA_MODEL})...")
     from langchain_ollama import ChatOllama
-    llm = ChatOllama(model=OLLAMA_MODEL, temperature=0, num_predict=1024)
+    llm = ChatOllama(
+        model=OLLAMA_MODEL,
+        base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+        temperature=0,
+        num_predict=1024,
+        num_ctx=int(os.getenv("OLLAMA_NUM_CTX", "8192")),  # room for system prompt + tool schemas
+    )
 
 tools = [query_telemetry_db, fetch_corridor_conditions, search_compliance_sop]
 llmWithTools = llm.bind_tools(tools)

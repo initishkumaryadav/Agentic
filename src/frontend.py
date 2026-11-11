@@ -87,7 +87,10 @@ with st.sidebar:
     
     st.markdown("---")
     st.caption(f"Session Token: `{st.session_state.thread_id[:8]}...`")
-    st.markdown(f"**Reasoning Architecture:** `{os.getenv('Agent_llm', 'Gemini')}`")
+    _llm_label = os.getenv('Agent_llm', 'OLLAMA')
+    if _llm_label.strip().upper() == "OLLAMA":
+        _llm_label += f" · {os.getenv('OLLAMA_MODEL', 'qwen2.5:0.5b')}"
+    st.markdown(f"**Reasoning Architecture:** `{_llm_label}`")
     
     st.markdown("---")
     if st.button("Purge Dispatch Workspace Session", use_container_width=True):
