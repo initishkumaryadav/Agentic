@@ -3,10 +3,6 @@ IF OBJECT_ID(N'llm_views.Active_FLEET', N'V') IS NOT NULL
     DROP VIEW llm_views.Active_FLEET;
 GO
 
--- Drop schema if it exists
-IF SCHEMA_ID(N'llm_views') IS NOT NULL
-    EXEC('DROP SCHEMA llm_views;');
-GO
 IF USER_ID(N'llm') IS NOT NULL
     DROP USER llm;
 GO
@@ -15,10 +11,11 @@ IF SUSER_ID(N'llm') IS NOT NULL
     DROP LOGIN llm;
 GO
 
-CREATE SCHEMA llm_views;
+IF SCHEMA_ID(N'llm_views') IS NULL
+    EXEC('CREATE SCHEMA llm_views;');
 GO
 
-CREATE VIEW llm_views.Active_FLEET AS 
+CREATE VIEW llm_views.Active_FLEET AS
 SELECT
     TS_UTC AS [Timestamp],
     V_Lat AS [Latitude],
@@ -32,6 +29,17 @@ SELECT
 FROM dbo.RAW_DATA;
 GO
 
+IF OBJECT_ID(N'llm_views.AgentAuditLog', N'U') IS NULL
+    CREATE TABLE llm_views.AgentAuditLog (
+        LogID        INT IDENTITY(1,1) PRIMARY KEY,
+        [Timestamp]  DATETIME2(3)   NOT NULL DEFAULT SYSUTCDATETIME(),
+        SessionID    NVARCHAR(64)   NOT NULL,
+        NodeExecuted NVARCHAR(64)   NOT NULL,
+        ToolName     NVARCHAR(128)  NULL,
+        Content      NVARCHAR(MAX)  NULL
+    );
+GO
+
 
 CREATE LOGIN llm WITH PASSWORD = 'Logicalone@';
 CREATE USER llm FOR LOGIN llm;
@@ -40,4 +48,7 @@ GO
 GRANT SELECT ON llm_views.Active_FLEET TO llm;
 DENY SELECT ON dbo.RAW_DATA TO llm;
 DENY INSERT, UPDATE, DELETE, ALTER ON SCHEMA::dbo TO llm;
+
+GRANT INSERT ON llm_views.AgentAuditLog TO llm;
+DENY SELECT, UPDATE, DELETE ON llm_views.AgentAuditLog TO llm;
 GO

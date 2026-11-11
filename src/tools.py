@@ -39,6 +39,7 @@ db_host=os.getenv("SQL_SERVER_HOST","localhost")
 db_port=os.getenv("SQL_SERVER_PORT","1433")
 db_user=os.getenv("SQL_AGENT_USER","LLM")
 db_password=os.getenv("SQL_AGENT_PASSWORD")
+db_name=os.getenv("DB_NAME","master")
 
 if not PINECONE_API_KEY:
     raise ValueError("CRITICAL: Ensure your pinecone api key must be present in .env file")
@@ -86,7 +87,7 @@ def query_telemetry_db(sql_query: str) -> str:
     connection_string = (
             f"DRIVER={{ODBC Driver 18 for SQL Server}};"
             f"SERVER={db_host},{db_port};"
-            f"DATABASE=master;"
+            f"DATABASE={db_name};"
             f"UID={db_user};"
             f"PWD={db_password};"
             f"Encrypt=no;"

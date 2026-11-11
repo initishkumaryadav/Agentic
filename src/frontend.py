@@ -30,13 +30,14 @@ db_host = os.getenv("SQL_SERVER_HOST", "localhost")
 db_port = os.getenv("SQL_SERVER_PORT", "1433")
 db_user = os.getenv("SQL_AGENT_USER", "USR_FDE_RO")
 db_password = os.getenv("SQL_AGENT_PASSWORD")
+db_name = os.getenv("DB_NAME", "master")
 
 
 def _odbc_url(user, password):
     params = urllib.parse.quote_plus(
         "DRIVER={ODBC Driver 18 for SQL Server};"
         f"SERVER={db_host},{db_port};"
-        "DATABASE=master;"
+        f"DATABASE={db_name};"
         f"UID={user};"
         f"PWD={password};"
         "Encrypt=no;"
