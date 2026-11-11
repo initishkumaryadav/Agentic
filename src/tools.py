@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from langchain_core.tools import tool
 from langchain_pinecone import PineconeVectorStore
 
-from src.db import agent_engine
+from src.ui_common import agent_engine
 from src.embeddings import build_embeddings, embedding_settings
 from src.sql_guard import UnsafeQueryError, validate_select
 

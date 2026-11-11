@@ -3,7 +3,7 @@ import pandas as pd
 import streamlit as st
 
 from src import chat_store
-from src.db import audit_reader_engine
+from src.ui_common import audit_reader_engine
 
 STEP_LABELS = {
     "reasoner": "Tool request",

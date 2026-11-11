@@ -1,15 +1,78 @@
-"""Shared helpers for the Streamlit pages: DB access, audit logging, fleet data and SOP rules."""
+
 import ast
+import os
 import re
+import urllib.parse
+from functools import lru_cache
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
-from sqlalchemy import text
-
-from src.db import agent_engine, audit_engine
+from dotenv import load_dotenv
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.engine import Engine
 
 projectRoot = Path(__file__).resolve().parent.parent
+load_dotenv(projectRoot / ".env")
+
+DB_HOST = os.getenv("SQL_SERVER_HOST", "localhost")
+DB_PORT = os.getenv("SQL_SERVER_PORT", "1433")
+DB_NAME = os.getenv("DB_NAME", "").strip()
+
+QUERY_TIMEOUT_S = int(os.getenv("SQL_QUERY_TIMEOUT", "30"))
+
+
+SQL_ENCRYPT = os.getenv("SQL_ENCRYPT", "yes").strip().lower()
+SQL_TRUST_SERVER_CERT = os.getenv("SQL_TRUST_SERVER_CERT", "yes").strip().lower()
+
+
+def odbc_url(user: str, password: str) -> str:
+    params = urllib.parse.quote_plus(
+        "DRIVER={ODBC Driver 18 for SQL Server};"
+        f"SERVER={DB_HOST},{DB_PORT};"
+        f"DATABASE={DB_NAME};"
+        f"UID={user};"
+        f"PWD={password};"
+        f"Encrypt={SQL_ENCRYPT};"
+        f"TrustServerCertificate={SQL_TRUST_SERVER_CERT};"
+        "Connection Timeout=8;"
+    )
+    return f"mssql+pyodbc:///?odbc_connect={params}"
+
+
+def _make_engine(user: str, password: str) -> Engine:
+    if not DB_NAME:
+        raise ValueError("DB_NAME must be set in .env")
+    engine = create_engine(odbc_url(user, password), pool_pre_ping=True)
+
+    @event.listens_for(engine, "connect")
+    def _set_query_timeout(dbapi_conn, _record):
+        dbapi_conn.timeout = QUERY_TIMEOUT_S  
+
+    return engine
+
+
+def _optional_engine(user_var: str, password_var: str) -> Engine | None:
+    user, password = os.getenv(user_var), os.getenv(password_var)
+    if not user or not password:
+        return None
+    return _make_engine(user, password)
+
+
+@lru_cache(maxsize=1)
+def agent_engine() -> Engine:
+    return _make_engine(os.getenv("SQL_AGENT_USER", "fde_agent_ro"), os.getenv("SQL_AGENT_PASSWORD", ""))
+
+
+@lru_cache(maxsize=1)
+def audit_engine() -> Engine | None:
+    return _optional_engine("SQL_AUDIT_USER", "SQL_AUDIT_PASSWORD")
+
+
+@lru_cache(maxsize=1)
+def audit_reader_engine() -> Engine | None:
+    return _optional_engine("SQL_AUDIT_READER_USER", "SQL_AUDIT_READER_PASSWORD")
+
 
 CSV_PATH = projectRoot / "data" / "raw" / "dynamic_supply_chain_logistics_dataset.csv"
 
@@ -39,7 +102,6 @@ _audit_warning_shown = False
 
 
 def write_audit_log(session_id, user_id, node_name, tool_name, content):
-    """Appends one agent step to the audit table using the insert-only audit login."""
     global _audit_warning_shown
     engine = audit_engine()
     if engine is None:
@@ -81,7 +143,7 @@ _CSV_TO_VIEW = {
 
 @st.cache_data(ttl=600, show_spinner="Loading fleet telemetry…")
 def load_fleet():
-    """Reads the same view the agent queries. Falls back to the raw CSV when the database is unreachable."""
+   
     try:
         with agent_engine().connect() as conn:
             df = pd.read_sql(text("SELECT * FROM llm_views.Active_FLEET"), conn)
@@ -132,14 +194,12 @@ def _datetime_literal(match):
 
 
 def telemetry_row_summary(output):
-    """The 'ROWS MATCHED: ...' line from query_telemetry_db output, without the prefix, or None."""
     if output and output.startswith("ROWS MATCHED:"):
         return output.splitlines()[0][len("ROWS MATCHED:"):].strip()
     return None
 
 
 def parse_telemetry_output(output):
-    """Turns query_telemetry_db's 'COLUMNS: ...' + tuple rows into a DataFrame, or None if it can't."""
     if not output:
         return None
     lines = output.strip().splitlines()
