@@ -40,9 +40,31 @@ def auth_configured() -> bool:
         return False
 
 
+def _env_set(name):
+    """Comma-separated env var as a lower-cased set, e.g. ALLOWED_EMAILS=a@x.com,b@x.com."""
+    return {v.strip().lower() for v in os.getenv(name, "").split(",") if v.strip()}
+
+
 AUTH_ENABLED = auth_configured()
-REQUIRE_AUTH = os.getenv("REQUIRE_AUTH", "false").strip().lower() in {"1", "true", "yes"}
+# Fail closed: sign-in is required unless REQUIRE_AUTH=false is set explicitly (local development only).
+REQUIRE_AUTH = os.getenv("REQUIRE_AUTH", "true").strip().lower() not in {"0", "false", "no"}
+ALLOWED_EMAILS = _env_set("ALLOWED_EMAILS")
+ALLOWED_EMAIL_DOMAINS = {d.lstrip("@") for d in _env_set("ALLOWED_EMAIL_DOMAINS")}
+ADMIN_EMAILS = _env_set("ADMIN_EMAILS")
 DEV_USER_ID = "local-dev"
+
+
+def is_allowed(email: str) -> bool:
+    """Signing in only proves who someone is; this decides whether they may use the app."""
+    return email in ALLOWED_EMAILS or email.rpartition("@")[2] in ALLOWED_EMAIL_DOMAINS
+
+
+def refuse(message):
+    st.space("large")
+    st.error(message, icon=":material/block:")
+    with st.container(horizontal=True, horizontal_alignment="center"):
+        st.button("Sign out", icon=":material/logout:", on_click=st.logout)
+    st.stop()
 
 if REQUIRE_AUTH and not AUTH_ENABLED:
     st.error(
@@ -60,13 +82,28 @@ if AUTH_ENABLED and not st.user.is_logged_in:
         st.button("Sign in", icon=":material/login:", type="primary", on_click=st.login)
     st.stop()
 
+if AUTH_ENABLED:
+    email = (st.user.get("email") or "").strip().lower()
+    if not email or st.user.get("email_verified") is False:
+        refuse("Your account has no verified email address, so access can't be checked.")
+    if not (ALLOWED_EMAILS or ALLOWED_EMAIL_DOMAINS):
+        refuse("Access is not configured: set ALLOWED_EMAIL_DOMAINS or ALLOWED_EMAILS in .env.")
+    if not is_allowed(email):
+        refuse(f"{email} is not allowed to use FDE Dispatch. Ask an administrator for access.")
+    user_id = email
+    is_admin = email in ADMIN_EMAILS
+else:
+    # Only reachable with REQUIRE_AUTH=false: a single local developer who is also the admin.
+    user_id = DEV_USER_ID
+    is_admin = True
+
 # Stable identity used to scope chats and stamp the audit log.
-user_id = (st.user.get("email") or st.user.get("sub")) if AUTH_ENABLED else DEV_USER_ID
 if st.session_state.get("user_id") not in (None, user_id):
-    # Different user in the same browser session: drop the previous user's open chat.
-    for key in ("thread_id", "ui_messages", "pending_prompt"):
+    # Different user in the same browser session: drop everything the previous user had open.
+    for key in ("thread_id", "ui_messages", "pending_prompt", "audit_df"):
         st.session_state.pop(key, None)
 st.session_state.user_id = user_id
+st.session_state.is_admin = is_admin
 
 st.session_state.setdefault("thread_id", str(uuid.uuid4()))
 st.session_state.setdefault("ui_messages", [])
@@ -87,7 +124,8 @@ fleet_page = st.Page(PAGES_DIR / "fleet.py", title="Fleet overview", icon=":mate
 audit_page = st.Page(PAGES_DIR / "audit.py", title="Audit log", icon=":material/policy:")
 st.session_state.dispatch_page = dispatch_page
 
-page = st.navigation([dispatch_page, fleet_page, audit_page], position="top")
+pages = [dispatch_page, fleet_page] + ([audit_page] if is_admin else [])
+page = st.navigation(pages, position="top")
 
 with st.sidebar:
     st.markdown("#### :material/ac_unit: FDE Dispatch")

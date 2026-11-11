@@ -1,8 +1,4 @@
-"""Validates SQL written by the LLM before it reaches the database.
 
-This is the first line of defence; the second is the database login itself, which can only
-SELECT from llm_views.Active_FLEET (see scripts/security.sql).
-"""
 import sqlglot
 from sqlglot import exp
 from sqlglot.errors import SqlglotError
@@ -20,10 +16,6 @@ class UnsafeQueryError(ValueError):
 
 
 def validate_select(sql: str) -> str:
-    """Returns the normalised T-SQL to execute, or raises UnsafeQueryError.
-
-    The returned string is regenerated from the parsed tree, so what runs is exactly what was checked.
-    """
     if not sql or not sql.strip():
         raise UnsafeQueryError("Empty query.")
 
@@ -52,7 +44,4 @@ def validate_select(sql: str) -> str:
             raise UnsafeQueryError(
                 f"Table '{table.sql(dialect='tsql')}' is not allowed. Query llm_views.Active_FLEET only."
             )
-
-    # Drop comments: T-SQL nests /* */ comments and sqlglot doesn't, so comment text is the one
-    # place the two parsers could disagree.
     return stmt.sql(dialect="tsql", comments=False)

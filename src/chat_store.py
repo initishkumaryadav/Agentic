@@ -1,5 +1,4 @@
-"""SQLite store for chat history. Every session belongs to one owner (the signed-in user's id),
-and every read or write is filtered by owner, so users never see each other's chats."""
+
 import json
 import os
 import sqlite3
@@ -27,10 +26,9 @@ def _now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-# Columns added after the first release; init_db adds them to older databases.
 _MIGRATIONS = {
     "messages": {"feedback": "INTEGER", "elapsed_ms": "INTEGER"},
-    # Chats saved before owners existed keep owner NULL and are hidden from everyone.
+    
     "sessions": {"owner": "TEXT"},
 }
 
@@ -95,8 +93,6 @@ def get_messages(session_id, owner):
 
 
 def add_message(session_id, owner, role, content, steps=None, elapsed_ms=None):
-    """Appends a message, creating the session (titled from its first message) if needed.
-    Returns the message id. Raises ChatOwnershipError if the session belongs to someone else."""
     if not owner:
         raise ValueError("owner is required")
     now = _now()
@@ -140,7 +136,6 @@ def delete_session(session_id, owner):
 
 
 def feedback_summary():
-    """Counts of thumbs up / down across all answers (admin statistics, not per user)."""
     with closing(_connect()) as conn:
         row = conn.execute(
             "SELECT SUM(feedback = 1) AS up, SUM(feedback = 0) AS down, COUNT(*) AS answers "

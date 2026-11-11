@@ -1,12 +1,9 @@
-import hmac
-import os
-
 import altair as alt
 import pandas as pd
 import streamlit as st
 
 from src import chat_store
-from src.db import admin_engine
+from src.db import audit_reader_engine
 
 STEP_LABELS = {
     "reasoner": "Tool request",
@@ -15,12 +12,10 @@ STEP_LABELS = {
 }
 
 
-def _matches(given, expected):
-    return bool(expected) and hmac.compare_digest(given.encode(), expected.encode())
-
-
-def load_audit(user, password):
-    engine = admin_engine(user, password)
+def load_audit():
+    engine = audit_reader_engine()
+    if engine is None:
+        raise RuntimeError("Set SQL_AUDIT_READER_USER and SQL_AUDIT_READER_PASSWORD in .env.")
     with engine.connect() as conn:
         df = pd.read_sql("""
             SELECT LogID, Timestamp, SessionID, UserID, NodeExecuted, ToolName, Content
@@ -35,38 +30,23 @@ def load_audit(user, password):
 st.header("Audit log")
 st.caption("Every tool call and answer the agent produced, read from `llm_views.AgentAuditLog`.")
 
-if not st.session_state.get("audit_creds"):
-    with st.form("admin_auth_form", border=True, width=520):
-        st.markdown("**:material/lock: Admin sign-in**")
-        input_user = st.text_input("Admin user", value=os.getenv("SQL_ADMIN_USER", ""))
-        input_pass = st.text_input("Password", type="password")
-        submit_admin = st.form_submit_button("Sign in", icon=":material/lock_open:", type="primary")
-
-    if submit_admin:
-        if _matches(input_user, os.getenv("SQL_ADMIN_USER")) and _matches(input_pass, os.getenv("SQL_ADMIN_PASSWORD")):
-            try:
-                st.session_state.audit_df = load_audit(input_user, input_pass)
-                st.session_state.audit_creds = (input_user, input_pass)
-                st.rerun()
-            except Exception as e:
-                st.error(f"Could not read the audit table: {e}", icon=":material/error:")
-        else:
-            st.error("Wrong user name or password.", icon=":material/error:")
+# frontend.py only lists this page for admins; check again in case it is reached some other way.
+if not st.session_state.get("is_admin"):
+    st.error("The audit log is only available to administrators.", icon=":material/block:")
     st.stop()
 
-# --- Signed in ---------------------------------------------------------------------------
 with st.container(horizontal=True, vertical_alignment="center"):
-    st.badge(f"Signed in as {st.session_state.audit_creds[0]}", icon=":material/verified_user:", color="green")
+    st.badge(f"Admin: {st.session_state.user_id}", icon=":material/verified_user:", color="green")
     st.space("stretch")
-    if st.button("Reload", icon=":material/refresh:", type="tertiary"):
-        try:
-            st.session_state.audit_df = load_audit(*st.session_state.audit_creds)
-        except Exception as e:
-            st.error(f"Could not read the audit table: {e}", icon=":material/error:")
-    if st.button("Sign out", icon=":material/logout:", type="tertiary"):
-        for key in ("audit_creds", "audit_df"):
-            st.session_state.pop(key, None)
-        st.rerun()
+    reload = st.button("Reload", icon=":material/refresh:", type="tertiary")
+
+if reload or "audit_df" not in st.session_state:
+    try:
+        st.session_state.audit_df = load_audit()
+    except Exception as e:
+        print(f"Audit log read failed: {e}")
+        st.error("Could not read the audit table. Check the server log for details.", icon=":material/error:")
+        st.stop()
 
 df = st.session_state.get("audit_df")
 if df is None or df.empty:
