@@ -37,17 +37,21 @@ if AGENT_LLM_SETTING == "OPENAI":
     )
 
 elif AGENT_LLM_SETTING == "GEMINI":
-    print("we are using google cloud model for reasoning.....")
+    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+    if not GEMINI_API_KEY:
+        raise ValueError("Agent_llm=GEMINI but GEMINI_API_KEY is empty in .env")
+    print(f"we are using google cloud model for reasoning ({GEMINI_MODEL})...")
     from langchain_google_genai import ChatGoogleGenerativeAI
     llm = ChatGoogleGenerativeAI(
-        model="gemini-3.6-flash",
+        model=GEMINI_MODEL,
         temperature=0,
-        google_api_key=os.getenv("GEMINI_API_KEY"),
+        google_api_key=GEMINI_API_KEY,
         max_output_tokens=2048,
         )
 
 else:  
-    # qwen2.5 supports native tool calling in Ollama (gemma2 does not).
+    
     OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:0.5b")
     print(f"we are using a ollama local model for reasoning ({OLLAMA_MODEL})...")
     from langchain_ollama import ChatOllama
