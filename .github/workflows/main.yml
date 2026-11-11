@@ -29,6 +29,7 @@ jobs:
             export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
             cd "$HOME/Agentic"
             git pull origin main
+            bash scripts/install_odbc_driver.sh
             source .venv/bin/activate
             uv pip install -r requirements.txt
             sudo systemctl restart streamlit

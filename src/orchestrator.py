@@ -62,9 +62,31 @@ else:
 tools = [query_telemetry_db, fetch_corridor_conditions, search_compliance_sop]
 llmWithTools = llm.bind_tools(tools)
 
+# The folder is "Prompt" (capital P); Linux paths are case-sensitive.
+PROMPT_PATH = projectRoot / "src" / "Prompt" / "systemPrompt.txt"
+try:
+    SYSTEM_PROMPT = SystemMessage(content=PROMPT_PATH.read_text(encoding="utf-8"))
+except FileNotFoundError:
+    print(f"Warning: system prompt not found at {PROMPT_PATH}; using a generic one.")
+    SYSTEM_PROMPT = SystemMessage(content="You are a helpful cold-chain logistics assistant. Use the available tools to answer.")
+
+EMPTY_REPLY_NUDGE = HumanMessage(
+    content="Your last reply was empty. Either call one of the tools or answer the question in text."
+)
+
 
 def reasoning_node(state: AgentState):
-    response = llmWithTools.invoke(state["messages"])
+    # Always prepend the system prompt so every caller (CLI, Streamlit) gets the same instructions.
+    messages = state["messages"]
+    if not messages or not isinstance(messages[0], SystemMessage):
+        messages = [SYSTEM_PROMPT, *messages]
+
+    response = llmWithTools.invoke(messages)
+
+    # Small local models sometimes return neither text nor a tool call. Retry once with a nudge.
+    if not response.content and not getattr(response, "tool_calls", None):
+        response = llmWithTools.invoke([*messages, EMPTY_REPLY_NUDGE])
+
     return {"messages": [response]}
 
 print("Compiling LangGraph Orchestrator...")
@@ -85,17 +107,7 @@ if __name__ == "__main__":
     print(f"Configured Execution: [LLM: {AGENT_LLM_SETTING}] -> [Embeddings: {os.getenv('Embeddings_model', 'LOCAL')}]")
     print("="*10 + "\n")
     
-    prompt_path = projectRoot / "src" / "prompt" / "systemPrompt.txt"
-    try:
-        with open(prompt_path, "r", encoding="utf-8") as f:
-            system_instructions = f.read()
-    except FileNotFoundError:
-        print(f"Error: Could not find {prompt_path}")
-        system_instructions = "You are a helpful AI assistant."
-    system_prompt = SystemMessage(content=system_instructions)
-    
     thread_config: RunnableConfig = {"configurable": {"thread_id": "production_test_1"}}
-    agent.invoke({"messages": [system_prompt]}, config=thread_config)
     
     while True:
         user_input = input("\nDispatcher > ")
