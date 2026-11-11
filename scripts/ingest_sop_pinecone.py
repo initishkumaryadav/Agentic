@@ -15,10 +15,6 @@ from langchain_core.documents import Document
 
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "true"
 
-
-# ===========================================
-# 1. PATH RESOLUTION AND SETUP
-# ===========================================
 script_dir = Path(__file__).resolve().parent
 projectRoot = script_dir.parent
 load_dotenv(projectRoot / ".env")
@@ -28,9 +24,6 @@ PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 if not PINECONE_API_KEY:
     raise ValueError("pinecone api key missing.")
 
-# ===========================================
-# data cache path
-# ===========================================
 cache_dir = projectRoot / "data" / "cache"
 cache_dir.mkdir(parents=True, exist_ok=True)
 HASH_CACHE_FILE = cache_dir / "ingestion_hash_cache.json"
@@ -43,18 +36,14 @@ if HASH_CACHE_FILE.exists():
     except Exception:
         hash_cache = {}
 
-# ===========================================
-# 2. DYNAMIC ENVIRONMENT ROUTING (approach 1)
-# ===========================================
 EMBEDDINGS_MODEL_SETTING = os.getenv("Embeddings_model", "LOCAL").strip().upper()
 
 if EMBEDDINGS_MODEL_SETTING == "OPENAI":
     print("we are using openai flagship embedding models..")
     embeddings = OpenAIEmbeddings()
-    # Pinecone index names: lowercase letters, digits and '-' only
     INDEX_NAME = "index-cloud"
 else:
-    # local embedding model (must be a Hugging Face model id, not an Ollama tag)
+    
     import torch
     from langchain_huggingface import HuggingFaceEmbeddings
 
@@ -64,12 +53,11 @@ else:
     embeddings = HuggingFaceEmbeddings(
         model_name=local_model_target,
         model_kwargs={"device": device},
-        # small encode batches keep VRAM usage low on an 8 GB GPU
         encode_kwargs={"batch_size": 8, "normalize_embeddings": True},
     )
     INDEX_NAME = "index-local"
 
-# Derive the dimension from the model itself so the index always matches it
+
 TARGET_DIMENSION = len(embeddings.embed_query("dimension probe"))
 print(f"Embedding dimension detected: {TARGET_DIMENSION}")
 
@@ -83,7 +71,7 @@ if INDEX_NAME in existing_indexes:
         print(f"fixing tracking: purging mismatched {desc.dimension} dim index...")
         pc.delete_index(INDEX_NAME)
         existing_indexes = [name for name in existing_indexes if name != INDEX_NAME]
-        hash_cache = {}  # index was wiped, so every file must be re-ingested
+        hash_cache = {} 
 
 if INDEX_NAME not in existing_indexes:
     print(f"Creating isolated target index: {INDEX_NAME} ({TARGET_DIMENSION} dim)..")
@@ -97,9 +85,7 @@ if INDEX_NAME not in existing_indexes:
 index_client = pc.Index(INDEX_NAME)
 vector_store = PineconeVectorStore(index=index_client, embedding=embeddings)
 
-# =================================================================
-# 4. ROBUST POLYMORPHIC PARSER
-# =================================================================
+
 def parse_and_chunk_document(doc_path: Path) -> list[Document]:
     ext = doc_path.suffix.lower()
     raw_chunks: list[Document] = []
@@ -145,7 +131,7 @@ def parse_and_chunk_document(doc_path: Path) -> list[Document]:
             ]
             if row_items:
                 row_text = " | ".join(row_items)
-                # DataFrame indexes are Hashable labels; convert only numeric labels to int.
+                
                 row_index = int(idx) if isinstance(idx, Integral) else str(idx)
                 raw_chunks.append(Document(page_content=row_text, metadata={"row_index": row_index}))
 
@@ -179,7 +165,7 @@ for deleted_file in deleted_files:
         cache_modified = True
     except Exception as e:
         print(f"Failed to purge {deleted_file}: {e}")
-        updated_cache[deleted_file] = hash_cache[deleted_file]  # retry next run
+        updated_cache[deleted_file] = hash_cache[deleted_file]  
 
 for file_name, file_path in current_files.items():
     file_hash = hashlib.md5(file_path.read_bytes()).hexdigest()
