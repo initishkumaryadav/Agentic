@@ -22,9 +22,26 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
-         script: |
-          cd /home/ubuntu/Agentic
-          git pull origin main
-          source .venv/bin/activate
-          uv pip install -r requirements.txt
-          sudo systemctl restart streamlit
+          script: |
+            set -e
+            APP_DIR="/home/ubuntu/Agentic"
+            if [ ! -d "$APP_DIR/.git" ]; then
+              mkdir -p "$APP_DIR"
+              git clone "https://github.com/${{ github.repository }}.git" "$APP_DIR"
+            fi
+            cd "$APP_DIR"
+            git pull origin main
+            if [ -f ".venv/bin/activate" ]; then
+              source .venv/bin/activate
+            elif [ -f "venv/bin/activate" ]; then
+              source venv/bin/activate
+            else
+              python3 -m venv .venv
+              source .venv/bin/activate
+            fi
+            pip install -r requirements.txt
+            if sudo systemctl list-unit-files | grep -q '^streamlit.service'; then
+              sudo systemctl restart streamlit
+            else
+              echo "streamlit.service not found; skipping restart."
+            fi
