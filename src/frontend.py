@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine, text
-from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 scriptDir = Path(__file__).resolve().parent
 projectRoot = scriptDir.parent
@@ -25,6 +25,7 @@ st.set_page_config(
 )
 
 from src.orchestrator import agent, message_text
+from src import chat_store
 
 db_host = os.getenv("SQL_SERVER_HOST", "localhost")
 db_port = os.getenv("SQL_SERVER_PORT", "1433")
@@ -100,6 +101,33 @@ def render_steps(steps):
                 st.code(step["output"], language="text")
 
 
+@st.cache_resource
+def _init_chat_store():
+    chat_store.init_db()
+    return True
+
+
+_init_chat_store()
+
+
+def open_chat(session_id=None):
+    """Switch to an existing chat, or start a new one when session_id is None."""
+    st.session_state.thread_id = session_id or str(uuid.uuid4())
+    st.session_state.ui_messages = chat_store.get_messages(session_id) if session_id else []
+    st.session_state.pending_prompt = None
+
+
+def history_for_agent(thread_config, past_messages):
+    """The agent keeps context in memory only. After an app restart, rebuild it from saved history."""
+    state = agent.get_state(thread_config)
+    if state.values.get("messages"):
+        return []
+    return [
+        HumanMessage(content=m["content"]) if m["role"] == "user" else AIMessage(content=m["content"])
+        for m in past_messages
+    ]
+
+
 if "thread_id" not in st.session_state:
     st.session_state.thread_id = str(uuid.uuid4())
 if "ui_messages" not in st.session_state:
@@ -123,12 +151,35 @@ with st.sidebar:
         label_visibility="collapsed",
     )
 
+    if app_mode == "Dispatch":
+        st.space("small")
+        if st.button("New chat", icon=":material/edit_square:", width="stretch"):
+            open_chat()
+            st.rerun()
+
+        sessions = chat_store.list_sessions()
+        if sessions:
+            st.caption("Recent")
+            for chat in sessions:
+                is_current = chat["id"] == st.session_state.thread_id
+                if st.button(
+                    chat["title"],
+                    key=f"chat_{chat['id']}",
+                    type="secondary" if is_current else "tertiary",
+                    width="stretch",
+                    help=chat["title"],
+                ):
+                    open_chat(chat["id"])
+                    st.rerun()
+
+            if any(c["id"] == st.session_state.thread_id for c in sessions):
+                if st.button("Delete this chat", icon=":material/delete:", type="tertiary"):
+                    chat_store.delete_session(st.session_state.thread_id)
+                    open_chat()
+                    st.rerun()
+
     st.space("medium")
-    st.caption(f"Session `{st.session_state.thread_id[:8]}`  \nModel `{llm_name}`")
-    if st.button("New session", icon=":material/restart_alt:", width="stretch"):
-        st.session_state.ui_messages = []
-        st.session_state.thread_id = str(uuid.uuid4())
-        st.rerun()
+    st.caption(f"Model `{llm_name}`")
 
 
 if app_mode == "Dispatch":
@@ -154,7 +205,9 @@ if app_mode == "Dispatch":
     st.session_state.pending_prompt = None
 
     if user_input:
+        past_messages = list(st.session_state.ui_messages)
         st.session_state.ui_messages.append({"role": "user", "content": user_input})
+        chat_store.add_message(st.session_state.thread_id, "user", user_input)
         with st.chat_message("user"):
             st.markdown(user_input)
 
@@ -166,7 +219,7 @@ if app_mode == "Dispatch":
             with st.status("Thinking…", expanded=False) as status:
                 try:
                     events = agent.stream(
-                        {"messages": [HumanMessage(content=user_input)]},
+                        {"messages": [*history_for_agent(thread_config, past_messages), HumanMessage(content=user_input)]},
                         config=thread_config,
                         stream_mode="updates",
                     )
@@ -239,8 +292,13 @@ if app_mode == "Dispatch":
                     "content": final_response,
                     "steps": step_list,
                 })
+                chat_store.add_message(st.session_state.thread_id, "assistant", final_response, step_list)
             else:
                 st.warning("No answer came back. Try rephrasing the question.", icon=":material/warning:")
+
+        # A brand-new chat was just saved; rerun once so it shows up in the sidebar list.
+        if not past_messages and not error and final_response:
+            st.rerun()
 
 
 elif app_mode == "Audit log":
