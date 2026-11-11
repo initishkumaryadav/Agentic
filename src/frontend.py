@@ -24,7 +24,7 @@ st.set_page_config(
     layout="wide",
 )
 
-from src.orchestrator import agent
+from src.orchestrator import agent, message_text
 
 db_host = os.getenv("SQL_SERVER_HOST", "localhost")
 db_port = os.getenv("SQL_SERVER_PORT", "1433")
@@ -190,8 +190,9 @@ if app_mode == "Dispatch":
                                         content=json.dumps(tool_call["args"]),
                                     )
 
-                                if latest_msg.content:
-                                    final_response = latest_msg.content
+                                reply = message_text(latest_msg).strip()
+                                if reply:
+                                    final_response = reply
                                     status.update(label="Writing answer…")
                                     write_audit_log(
                                         session_id=st.session_state.thread_id,
@@ -207,12 +208,12 @@ if app_mode == "Dispatch":
                                             msg.tool_call_id,
                                             {"name": msg.name, "args": None, "output": None},
                                         )
-                                        step["output"] = msg.content
+                                        step["output"] = message_text(msg)
                                         write_audit_log(
                                             session_id=st.session_state.thread_id,
                                             node_name="tools",
                                             tool_name=msg.name,
-                                            content=msg.content,
+                                            content=message_text(msg),
                                         )
                 except Exception as e:
                     error = e

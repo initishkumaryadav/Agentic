@@ -74,6 +74,23 @@ except FileNotFoundError:
     print(f"Warning: system prompt not found at {PROMPT_PATH}; using a generic one.")
     SYSTEM_PROMPT = SystemMessage(content="You are a helpful cold-chain logistics assistant. Use the available tools to answer.")
 
+def message_text(msg) -> str:
+    """Plain text of a message. Gemini returns content as a list of parts
+    (text blocks plus 'signature'/thinking blocks); keep only the text."""
+    content = getattr(msg, "content", msg)
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+            elif isinstance(part, dict) and part.get("type") == "text":
+                parts.append(part.get("text", ""))
+        return "".join(parts)
+    return str(content or "")
+
+
 EMPTY_REPLY_NUDGE = HumanMessage(
     content="Your last reply was empty. Either call one of the tools or answer the question in text."
 )
@@ -88,7 +105,7 @@ def reasoning_node(state: AgentState):
     response = llmWithTools.invoke(messages)
 
     # Small local models sometimes return neither text nor a tool call. Retry once with a nudge.
-    if not response.content and not getattr(response, "tool_calls", None):
+    if not message_text(response).strip() and not getattr(response, "tool_calls", None):
         response = llmWithTools.invoke([*messages, EMPTY_REPLY_NUDGE])
 
     return {"messages": [response]}
@@ -125,5 +142,6 @@ if __name__ == "__main__":
                     print("Retrieving external data elements via ToolNode...")
                 elif node_name == "reasoner":
                     latest_msg = node_state["messages"][-1]
-                    if latest_msg.content:
-                        print(f"\n Agent:\n{latest_msg.content}")
+                    reply = message_text(latest_msg)
+                    if reply:
+                        print(f"\n Agent:\n{reply}")
