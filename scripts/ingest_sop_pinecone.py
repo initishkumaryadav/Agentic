@@ -22,7 +22,7 @@ if str(projectRoot) not in sys.path:
 load_dotenv(projectRoot / ".env")
 
 # Same settings the app uses to query, so vectors and questions share one model and index.
-from src.embeddings import build_embeddings, embedding_settings
+from src.tools import build_embeddings, embedding_settings
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 if not PINECONE_API_KEY:
