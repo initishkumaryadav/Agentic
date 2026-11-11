@@ -1,26 +1,30 @@
-import os
 import hashlib
 import json
+import os
+import sys
 from numbers import Integral
 from pathlib import Path
-from dotenv import load_dotenv
+
 import pandas as pd
 import pypdf
-
-from pinecone import Pinecone, ServerlessSpec
-from langchain_openai import OpenAIEmbeddings
-from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
-from langchain_pinecone import PineconeVectorStore
+from dotenv import load_dotenv
 from langchain_core.documents import Document
+from langchain_pinecone import PineconeVectorStore
+from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
+from pinecone import Pinecone, ServerlessSpec
 
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "true"
 
 script_dir = Path(__file__).resolve().parent
 projectRoot = script_dir.parent
+if str(projectRoot) not in sys.path:
+    sys.path.insert(0, str(projectRoot))
 load_dotenv(projectRoot / ".env")
 
-PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+# Same settings the app uses to query, so vectors and questions share one model and index.
+from src.embeddings import build_embeddings, embedding_settings
 
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 if not PINECONE_API_KEY:
     raise ValueError("pinecone api key missing.")
 
@@ -28,62 +32,102 @@ cache_dir = projectRoot / "data" / "cache"
 cache_dir.mkdir(parents=True, exist_ok=True)
 HASH_CACHE_FILE = cache_dir / "ingestion_hash_cache.json"
 
-hash_cache = {}
-if HASH_CACHE_FILE.exists():
+
+def load_cache() -> dict:
+    """{index_name: {"model": str, "files": {file_name: md5}}}. Older flat caches are discarded,
+    because they don't say which index or model the files went into."""
+    if not HASH_CACHE_FILE.exists():
+        return {}
     try:
-        with open(HASH_CACHE_FILE, "r") as f:
-            hash_cache = json.load(f)
+        data = json.loads(HASH_CACHE_FILE.read_text())
     except Exception:
-        hash_cache = {}
+        return {}
+    if not isinstance(data, dict) or data.get("_format") != 2:
+        print("Hash cache is from an older version; every file will be re-ingested once.")
+        return {}
+    return data.get("indexes", {})
 
-EMBEDDINGS_MODEL_SETTING = os.getenv("Embeddings_model", "LOCAL").strip().upper()
 
-if EMBEDDINGS_MODEL_SETTING == "OPENAI":
-    print("we are using openai flagship embedding models..")
-    embeddings = OpenAIEmbeddings()
-    INDEX_NAME = "index-cloud"
-else:
-    
-    import torch
-    from langchain_huggingface import HuggingFaceEmbeddings
+def save_cache(indexes: dict) -> None:
+    HASH_CACHE_FILE.write_text(json.dumps({"_format": 2, "indexes": indexes}, indent=4))
 
-    local_model_target = os.getenv("LOCAL_EM_MODEL", "Qwen/Qwen3-Embedding-4B")
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"local em model working. Launching [{local_model_target}] on [{device}]")
-    embeddings = HuggingFaceEmbeddings(
-        model_name=local_model_target,
-        model_kwargs={"device": device},
-        encode_kwargs={"batch_size": 8, "normalize_embeddings": True},
-    )
-    INDEX_NAME = "index-local"
 
+settings = embedding_settings()
+INDEX_NAME = settings.index_name
+print(f"Embeddings: {settings.provider} [{settings.model}] -> Pinecone index [{INDEX_NAME}]")
+embeddings = build_embeddings(settings)
 
 TARGET_DIMENSION = len(embeddings.embed_query("dimension probe"))
 print(f"Embedding dimension detected: {TARGET_DIMENSION}")
 
-print(f"Connecting to Pinecone Index Target: [{INDEX_NAME}]")
+all_caches = load_cache()
+index_cache = all_caches.get(INDEX_NAME, {})
+if index_cache.get("model") != settings.model:
+    if index_cache:
+        print(f"Embedding model changed ({index_cache.get('model')} -> {settings.model}); re-ingesting all files.")
+    index_cache = {"model": settings.model, "files": {}}
+hash_cache = index_cache["files"]
+
+def pinecone_call(fn, what, attempts=3):
+    """Retries a Pinecone control-plane call on network errors; exits with one clear line if it keeps failing."""
+    import time
+    for attempt in range(1, attempts + 1):
+        try:
+            return fn()
+        except Exception as e:
+            reason = f"{type(e).__name__}: {str(e).splitlines()[0][:160]}"
+            if attempt == attempts:
+                print(f"\nERROR: could not {what} after {attempts} attempts ({reason}).\n"
+                      "Check your internet connection (api.pinecone.io must be reachable) and run the script again.")
+                sys.exit(1)
+            wait = 5 * attempt
+            print(f"  Pinecone unreachable while trying to {what} ({reason}); retrying in {wait}s...")
+            time.sleep(wait)
+
+
+print(f"Connecting to Pinecone index [{INDEX_NAME}]")
 pc = Pinecone(api_key=PINECONE_API_KEY)
-existing_indexes = pc.list_indexes().names()
+existing_indexes = pinecone_call(lambda: pc.list_indexes().names(), "list Pinecone indexes")
 
 if INDEX_NAME in existing_indexes:
-    desc = pc.describe_index(INDEX_NAME)
+    desc = pinecone_call(lambda: pc.describe_index(INDEX_NAME), f"describe index {INDEX_NAME}")
     if desc.dimension != TARGET_DIMENSION:
-        print(f"fixing tracking: purging mismatched {desc.dimension} dim index...")
+        print(f"Index has {desc.dimension} dimensions, model has {TARGET_DIMENSION}; recreating the index...")
         pc.delete_index(INDEX_NAME)
         existing_indexes = [name for name in existing_indexes if name != INDEX_NAME]
-        hash_cache = {} 
+        hash_cache.clear()
 
 if INDEX_NAME not in existing_indexes:
-    print(f"Creating isolated target index: {INDEX_NAME} ({TARGET_DIMENSION} dim)..")
+    print(f"Creating index {INDEX_NAME} ({TARGET_DIMENSION} dim)..")
     pc.create_index(
         name=INDEX_NAME,
         dimension=TARGET_DIMENSION,
         metric="cosine",
         spec=ServerlessSpec(cloud="aws", region="us-east-1"),
     )
+    hash_cache.clear()  # a new index is empty whatever the cache says
 
 index_client = pc.Index(INDEX_NAME)
 vector_store = PineconeVectorStore(index=index_client, embedding=embeddings)
+
+
+def chunk_id_prefix(file_name: str) -> str:
+    return f"{file_name}-chunk-"
+
+
+def delete_file_vectors(file_name: str) -> None:
+    """Removes every chunk of a file. Chunk ids are '<file>-chunk-<n>', so list by prefix
+    (works on serverless indexes, which can't delete by metadata filter)."""
+    try:
+        for id_batch in index_client.list(prefix=chunk_id_prefix(file_name)):
+            if id_batch:
+                index_client.delete(ids=list(id_batch))
+    except Exception as list_error:
+        # Pod-based indexes don't support list(); they do support delete by metadata.
+        try:
+            index_client.delete(filter={"source_file": {"$eq": file_name}})
+        except Exception as filter_error:
+            raise RuntimeError(f"could not delete old vectors: {list_error}; {filter_error}") from None
 
 
 def parse_and_chunk_document(doc_path: Path) -> list[Document]:
@@ -131,7 +175,6 @@ def parse_and_chunk_document(doc_path: Path) -> list[Document]:
             ]
             if row_items:
                 row_text = " | ".join(row_items)
-                
                 row_index = int(idx) if isinstance(idx, Integral) else str(idx)
                 raw_chunks.append(Document(page_content=row_text, metadata={"row_index": row_index}))
 
@@ -143,6 +186,7 @@ def parse_and_chunk_document(doc_path: Path) -> list[Document]:
             valid_chunks.append(chunk)
     return valid_chunks
 
+
 policy_dir = projectRoot / "data" / "policy"
 policy_dir.mkdir(parents=True, exist_ok=True)
 
@@ -153,36 +197,32 @@ for pattern in target_patterns:
         current_files[file_path.name] = file_path
 print(f"found {len(current_files)} policy file(s) in {policy_dir}...")
 
-updated_cache = {}
+updated_files = {}
 cache_modified = False
 
-deleted_files = set(hash_cache.keys()) - set(current_files.keys())
-
-for deleted_file in deleted_files:
+for deleted_file in set(hash_cache) - set(current_files):
     print(f"Detected deleted file: {deleted_file}. Purging from Pinecone...")
     try:
-        index_client.delete(filter={"source_file": {"$eq": deleted_file}})
+        delete_file_vectors(deleted_file)
         cache_modified = True
     except Exception as e:
         print(f"Failed to purge {deleted_file}: {e}")
-        updated_cache[deleted_file] = hash_cache[deleted_file]  
+        updated_files[deleted_file] = hash_cache[deleted_file]  # retry next run
 
 for file_name, file_path in current_files.items():
     file_hash = hashlib.md5(file_path.read_bytes()).hexdigest()
-    updated_cache[file_name] = file_hash
 
     if hash_cache.get(file_name) == file_hash:
         print(f"Skipped (Unchanged): {file_name}")
+        updated_files[file_name] = file_hash
         continue
 
     print(f"Processing updates: {file_name}....")
     cache_modified = True
 
     try:
-        try:
-            index_client.delete(filter={"source_file": {"$eq": file_name}})
-        except Exception:
-            pass 
+        # Remove the previous version first, so a shorter file leaves no stale chunks behind.
+        delete_file_vectors(file_name)
 
         chunks = parse_and_chunk_document(file_path)
         if not chunks:
@@ -195,25 +235,23 @@ for file_name, file_path in current_files.items():
             chunk.metadata["source_file"] = file_name
             chunk.metadata["file_format"] = ext.lstrip(".")
             chunk.metadata["document_type"] = "table_row" if ext in [".csv", ".xlsx"] else "policy_text"
-            explicit_ids.append(f"{file_name}-chunk-{idx}")
+            explicit_ids.append(f"{chunk_id_prefix(file_name)}{idx}")
 
         batch_size = 100
-        total_chunks = len(chunks)
-        print(f"upserting {total_chunks} chunk(s) in batches of {batch_size}....")
-
-        for i in range(0, total_chunks, batch_size):
+        print(f"upserting {len(chunks)} chunk(s) in batches of {batch_size}....")
+        for i in range(0, len(chunks), batch_size):
             vector_store.add_documents(
                 documents=chunks[i:i + batch_size],
                 ids=explicit_ids[i:i + batch_size],
             )
+        updated_files[file_name] = file_hash  # only cache files that fully succeeded
 
     except Exception as e:
         print(f"Error during ingestion of {file_name}: {e}")
-        updated_cache.pop(file_name, None)  
 
-if cache_modified:
-    with open(HASH_CACHE_FILE, "w") as f:
-        json.dump(updated_cache, f, indent=4)
+if cache_modified or index_cache.get("files") != updated_files:
+    all_caches[INDEX_NAME] = {"model": settings.model, "files": updated_files}
+    save_cache(all_caches)
     print("Ingestion & cache update complete.")
 else:
     print("Index is already up to date.")

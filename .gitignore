@@ -4,3 +4,8 @@ venv/
 .venv/
 docs/instrutions.md
 data/chat_sessions.db
+
+# Sign-in (OIDC) secrets
+.streamlit/secrets.toml
+.pytest_cache/
+tests

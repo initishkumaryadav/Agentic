@@ -1,14 +1,10 @@
 import os
 import sys
 import uuid
-import json
-import urllib.parse
 from pathlib import Path
+
 from dotenv import load_dotenv
 import streamlit as st
-import pandas as pd
-from sqlalchemy import create_engine, text
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 scriptDir = Path(__file__).resolve().parent
 projectRoot = scriptDir.parent
@@ -24,81 +20,7 @@ st.set_page_config(
     layout="wide",
 )
 
-from src.orchestrator import agent, message_text
 from src import chat_store
-
-db_host = os.getenv("SQL_SERVER_HOST", "localhost")
-db_port = os.getenv("SQL_SERVER_PORT", "1433")
-db_user = os.getenv("SQL_AGENT_USER", "USR_FDE_RO")
-db_password = os.getenv("SQL_AGENT_PASSWORD")
-db_name = os.getenv("DB_NAME", "master")
-
-
-def _odbc_url(user, password):
-    params = urllib.parse.quote_plus(
-        "DRIVER={ODBC Driver 18 for SQL Server};"
-        f"SERVER={db_host},{db_port};"
-        f"DATABASE={db_name};"
-        f"UID={user};"
-        f"PWD={password};"
-        "Encrypt=no;"
-        "TrustServerCertificate=yes;"
-    )
-    return f"mssql+pyodbc:///?odbc_connect={params}"
-
-
-@st.cache_resource
-def get_log_engine():
-    return create_engine(_odbc_url(db_user, db_password))
-
-
-def write_audit_log(session_id, node_name, tool_name, content):
-    """Writes agent execution traces to the SQL audit table using agent permissions."""
-    try:
-        with get_log_engine().connect() as conn:
-            conn.execute(text("""
-                INSERT INTO llm_views.AgentAuditLog (SessionID, NodeExecuted, ToolName, Content)
-                VALUES (:session_id, :node_name, :tool_name, :content)
-            """), {
-                "session_id": session_id,
-                "node_name": node_name,
-                "tool_name": tool_name,
-                "content": content,
-            })
-            conn.commit()
-    except Exception as e:
-        print(f"Audit log write failed: {e}")
-
-
-# Plain-language labels for the agent's tools.
-TOOL_LABELS = {
-    "query_telemetry_db": ("Fleet telemetry", ":material/database:"),
-    "fetch_corridor_conditions": ("Corridor conditions", ":material/route:"),
-    "search_compliance_sop": ("Compliance SOPs", ":material/menu_book:"),
-}
-
-SUGGESTIONS = [
-    "Which reefer units are running above their set temperature?",
-    "What are the current conditions near 40.71, -74.00?",
-    "What is the SOP for a temperature excursion on frozen goods?",
-]
-
-
-def tool_label(name):
-    return TOOL_LABELS.get(name, (name.replace("_", " ").capitalize(), ":material/build:"))
-
-
-def render_steps(steps):
-    """One collapsed row per tool call: what was asked and what came back."""
-    for step in steps:
-        label, icon = tool_label(step["name"])
-        with st.expander(label, icon=icon):
-            if step.get("args"):
-                st.caption("Request")
-                st.code(json.dumps(step["args"], indent=2), language="json")
-            if step.get("output") is not None:
-                st.caption("Response")
-                st.code(step["output"], language="text")
 
 
 @st.cache_resource
@@ -110,251 +32,71 @@ def _init_chat_store():
 _init_chat_store()
 
 
-def open_chat(session_id=None):
-    """Switch to an existing chat, or start a new one when session_id is None."""
-    st.session_state.thread_id = session_id or str(uuid.uuid4())
-    st.session_state.ui_messages = chat_store.get_messages(session_id) if session_id else []
-    st.session_state.pending_prompt = None
+def auth_configured() -> bool:
+    """True when an OIDC provider is set up under [auth] in .streamlit/secrets.toml."""
+    try:
+        return "auth" in st.secrets
+    except Exception:
+        return False
 
 
-def history_for_agent(thread_config, past_messages):
-    """The agent keeps context in memory only. After an app restart, rebuild it from saved history."""
-    state = agent.get_state(thread_config)
-    if state.values.get("messages"):
-        return []
-    return [
-        HumanMessage(content=m["content"]) if m["role"] == "user" else AIMessage(content=m["content"])
-        for m in past_messages
-    ]
+AUTH_ENABLED = auth_configured()
+REQUIRE_AUTH = os.getenv("REQUIRE_AUTH", "false").strip().lower() in {"1", "true", "yes"}
+DEV_USER_ID = "local-dev"
 
+if REQUIRE_AUTH and not AUTH_ENABLED:
+    st.error(
+        "Sign-in is required (REQUIRE_AUTH=true) but no identity provider is configured. "
+        "Add an [auth] section to .streamlit/secrets.toml.",
+        icon=":material/lock:",
+    )
+    st.stop()
 
-if "thread_id" not in st.session_state:
-    st.session_state.thread_id = str(uuid.uuid4())
-if "ui_messages" not in st.session_state:
-    st.session_state.ui_messages = []
-if "pending_prompt" not in st.session_state:
-    st.session_state.pending_prompt = None
+if AUTH_ENABLED and not st.user.is_logged_in:
+    st.space("large")
+    st.title(":material/ac_unit: FDE Dispatch", text_alignment="center")
+    st.caption("Cold-chain operations assistant. Sign in with your work account to continue.", text_alignment="center")
+    with st.container(horizontal=True, horizontal_alignment="center"):
+        st.button("Sign in", icon=":material/login:", type="primary", on_click=st.login)
+    st.stop()
 
-thread_config = {"configurable": {"thread_id": st.session_state.thread_id}}
+# Stable identity used to scope chats and stamp the audit log.
+user_id = (st.user.get("email") or st.user.get("sub")) if AUTH_ENABLED else DEV_USER_ID
+if st.session_state.get("user_id") not in (None, user_id):
+    # Different user in the same browser session: drop the previous user's open chat.
+    for key in ("thread_id", "ui_messages", "pending_prompt"):
+        st.session_state.pop(key, None)
+st.session_state.user_id = user_id
+
+st.session_state.setdefault("thread_id", str(uuid.uuid4()))
+st.session_state.setdefault("ui_messages", [])
+st.session_state.setdefault("pending_prompt", None)
 
 llm_provider = os.getenv("Agent_llm", "OLLAMA").strip().upper()
-llm_name = os.getenv("OLLAMA_MODEL", "qwen2.5:0.5b") if llm_provider == "OLLAMA" else llm_provider.lower()
+if llm_provider == "OLLAMA":
+    llm_name = os.getenv("OLLAMA_MODEL", "qwen2.5:0.5b")
+elif llm_provider == "GEMINI":
+    llm_name = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
+else:
+    llm_name = "gpt-4o"
+st.session_state.llm_name = llm_name
+
+PAGES_DIR = scriptDir / "app_pages"
+dispatch_page = st.Page(PAGES_DIR / "dispatch.py", title="Dispatch", icon=":material/forum:", default=True)
+fleet_page = st.Page(PAGES_DIR / "fleet.py", title="Fleet overview", icon=":material/monitoring:")
+audit_page = st.Page(PAGES_DIR / "audit.py", title="Audit log", icon=":material/policy:")
+st.session_state.dispatch_page = dispatch_page
+
+page = st.navigation([dispatch_page, fleet_page, audit_page], position="top")
 
 with st.sidebar:
-    st.markdown("#### FDE Dispatch")
-    st.caption("Cold-chain operations")
+    st.markdown("#### :material/ac_unit: FDE Dispatch")
+    st.caption(f"Cold-chain operations · :material/memory: `{llm_name}`")
+    if AUTH_ENABLED:
+        with st.container(horizontal=True, vertical_alignment="center"):
+            st.caption(f":material/account_circle: {st.user.get('name') or user_id}")
+            st.button("Sign out", icon=":material/logout:", type="tertiary", on_click=st.logout)
+    else:
+        st.badge("Dev mode: sign-in not configured", icon=":material/warning:", color="orange")
 
-    app_mode = st.radio(
-        "View",
-        ["Dispatch", "Audit log"],
-        captions=["Ask about the fleet", "Admin only"],
-        label_visibility="collapsed",
-    )
-
-    if app_mode == "Dispatch":
-        st.space("small")
-        if st.button("New chat", icon=":material/edit_square:", width="stretch"):
-            open_chat()
-            st.rerun()
-
-        sessions = chat_store.list_sessions()
-        if sessions:
-            st.caption("Recent")
-            for chat in sessions:
-                is_current = chat["id"] == st.session_state.thread_id
-                if st.button(
-                    chat["title"],
-                    key=f"chat_{chat['id']}",
-                    type="secondary" if is_current else "tertiary",
-                    width="stretch",
-                    help=chat["title"],
-                ):
-                    open_chat(chat["id"])
-                    st.rerun()
-
-            if any(c["id"] == st.session_state.thread_id for c in sessions):
-                if st.button("Delete this chat", icon=":material/delete:", type="tertiary"):
-                    chat_store.delete_session(st.session_state.thread_id)
-                    open_chat()
-                    st.rerun()
-
-    st.space("medium")
-    st.caption(f"Model `{llm_name}`")
-
-
-if app_mode == "Dispatch":
-    st.header("Cold-chain incidents")
-    st.caption("Ask about fleet telemetry, corridor conditions or compliance procedures.")
-
-    for entry in st.session_state.ui_messages:
-        with st.chat_message(entry["role"]):
-            if entry.get("steps"):
-                render_steps(entry["steps"])
-            st.markdown(entry["content"])
-
-    if not st.session_state.ui_messages:
-        st.space("small")
-        cols = st.columns(len(SUGGESTIONS))
-        for col, text_ in zip(cols, SUGGESTIONS):
-            if col.button(text_, width="stretch", type="tertiary"):
-                st.session_state.pending_prompt = text_
-                st.rerun()
-
-    typed = st.chat_input("Ask about a shipment, route or procedure")
-    user_input = typed or st.session_state.pending_prompt
-    st.session_state.pending_prompt = None
-
-    if user_input:
-        past_messages = list(st.session_state.ui_messages)
-        st.session_state.ui_messages.append({"role": "user", "content": user_input})
-        chat_store.add_message(st.session_state.thread_id, "user", user_input)
-        with st.chat_message("user"):
-            st.markdown(user_input)
-
-        with st.chat_message("assistant"):
-            final_response = ""
-            steps = {}  # tool_call_id -> {name, args, output}
-            error = None
-
-            with st.status("Thinking…", expanded=False) as status:
-                try:
-                    events = agent.stream(
-                        {"messages": [*history_for_agent(thread_config, past_messages), HumanMessage(content=user_input)]},
-                        config=thread_config,
-                        stream_mode="updates",
-                    )
-                    for event in events:
-                        for node_name, node_state in event.items():
-                            if node_name == "reasoner":
-                                latest_msg = node_state["messages"][-1]
-
-                                for tool_call in getattr(latest_msg, "tool_calls", None) or []:
-                                    label, _ = tool_label(tool_call["name"])
-                                    status.update(label=f"Checking {label.lower()}…")
-                                    steps[tool_call["id"]] = {
-                                        "name": tool_call["name"],
-                                        "args": tool_call["args"],
-                                        "output": None,
-                                    }
-                                    write_audit_log(
-                                        session_id=st.session_state.thread_id,
-                                        node_name="reasoner",
-                                        tool_name=tool_call["name"],
-                                        content=json.dumps(tool_call["args"]),
-                                    )
-
-                                reply = message_text(latest_msg).strip()
-                                if reply:
-                                    final_response = reply
-                                    status.update(label="Writing answer…")
-                                    write_audit_log(
-                                        session_id=st.session_state.thread_id,
-                                        node_name="reasoner_final",
-                                        tool_name="LLM Text Synthesis",
-                                        content=final_response,
-                                    )
-
-                            elif node_name == "tools":
-                                for msg in node_state.get("messages", []):
-                                    if isinstance(msg, ToolMessage):
-                                        step = steps.setdefault(
-                                            msg.tool_call_id,
-                                            {"name": msg.name, "args": None, "output": None},
-                                        )
-                                        step["output"] = message_text(msg)
-                                        write_audit_log(
-                                            session_id=st.session_state.thread_id,
-                                            node_name="tools",
-                                            tool_name=msg.name,
-                                            content=message_text(msg),
-                                        )
-                except Exception as e:
-                    error = e
-
-                step_list = list(steps.values())
-                if error:
-                    status.update(label="Request failed", state="error")
-                elif step_list:
-                    sources = ", ".join(dict.fromkeys(tool_label(s["name"])[0].lower() for s in step_list))
-                    status.update(label=f"Checked {sources}", state="complete")
-                else:
-                    status.update(label="Answered without lookups", state="complete")
-
-                if step_list:
-                    render_steps(step_list)
-
-            if error:
-                st.error(f"The agent could not finish this request: {error}", icon=":material/error:")
-            elif final_response:
-                st.markdown(final_response)
-                st.session_state.ui_messages.append({
-                    "role": "assistant",
-                    "content": final_response,
-                    "steps": step_list,
-                })
-                chat_store.add_message(st.session_state.thread_id, "assistant", final_response, step_list)
-            else:
-                st.warning("No answer came back. Try rephrasing the question.", icon=":material/warning:")
-
-        # A brand-new chat was just saved; rerun once so it shows up in the sidebar list.
-        if not past_messages and not error and final_response:
-            st.rerun()
-
-
-elif app_mode == "Audit log":
-    st.header("Audit log")
-    st.caption("Every tool call and answer the agent produced, read from `llm_views.AgentAuditLog`.")
-
-    with st.form("admin_auth_form", border=True):
-        col1, col2 = st.columns(2)
-        input_user = col1.text_input("Admin user", value=os.getenv("SQL_ADMIN_USER", ""))
-        input_pass = col2.text_input("Password", type="password")
-        submit_admin = st.form_submit_button("Sign in", icon=":material/lock_open:")
-
-    if submit_admin:
-        if input_user == os.getenv("SQL_ADMIN_USER") and input_pass == os.getenv("SQL_ADMIN_PASSWORD"):
-            try:
-                admin_engine = create_engine(_odbc_url(input_user, input_pass))
-                with admin_engine.connect() as conn:
-                    st.session_state.audit_df = pd.read_sql("""
-                        SELECT LogID, Timestamp, SessionID, NodeExecuted, ToolName, Content
-                        FROM llm_views.AgentAuditLog
-                        ORDER BY Timestamp DESC
-                    """, conn)
-            except Exception as e:
-                st.error(f"Could not read the audit table: {e}", icon=":material/error:")
-        else:
-            st.error("Wrong user name or password.", icon=":material/error:")
-
-    df = st.session_state.get("audit_df")
-    if df is not None:
-        if df.empty:
-            st.caption("Nothing logged yet. Ask something in Dispatch first.")
-        else:
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Entries", f"{len(df):,}", border=True)
-            m2.metric("Sessions", f"{df['SessionID'].nunique():,}", border=True)
-            m3.metric("Tool calls", f"{(df['NodeExecuted'] == 'tools').sum():,}", border=True)
-
-            search = st.text_input("Filter", placeholder="Session, tool or text", label_visibility="collapsed")
-            view = df
-            if search:
-                mask = df[["SessionID", "ToolName", "Content"]].astype(str).apply(
-                    lambda c: c.str.contains(search, case=False, regex=False)
-                ).any(axis=1)
-                view = df[mask]
-
-            st.dataframe(
-                view,
-                column_config={
-                    "LogID": st.column_config.NumberColumn("ID", format="%d", width="small"),
-                    "Timestamp": st.column_config.DatetimeColumn("Time", format="DD MMM YYYY, HH:mm:ss"),
-                    "SessionID": st.column_config.TextColumn("Session", width="small"),
-                    "NodeExecuted": "Step",
-                    "ToolName": "Tool",
-                    "Content": st.column_config.TextColumn("Payload", width="large"),
-                },
-                hide_index=True,
-                width="stretch",
-                height=560,
-            )
+page.run()

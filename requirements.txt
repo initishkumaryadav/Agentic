@@ -20,5 +20,8 @@ scikit-learn==1.5.2
 sentence-transformers==6.0.0
 SQLAlchemy==2.0.52
 streamlit==1.62.0
+Authlib==1.9.5
+sqlglot==30.31.0
+requests>=2.31
 langchain-google-genai==4.4.3
 uuid-utils==0.12.0

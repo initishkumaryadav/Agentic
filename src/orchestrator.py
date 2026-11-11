@@ -60,13 +60,13 @@ else:
         base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
         temperature=0,
         num_predict=1024,
-        num_ctx=int(os.getenv("OLLAMA_NUM_CTX", "8192")),  # room for system prompt + tool schemas
+        num_ctx=int(os.getenv("OLLAMA_NUM_CTX", "8192")),  
     )
 
 tools = [query_telemetry_db, fetch_corridor_conditions, search_compliance_sop]
 llmWithTools = llm.bind_tools(tools)
 
-# The folder is "Prompt" (capital P); Linux paths are case-sensitive.
+
 PROMPT_PATH = projectRoot / "src" / "Prompt" / "systemPrompt.txt"
 try:
     SYSTEM_PROMPT = SystemMessage(content=PROMPT_PATH.read_text(encoding="utf-8"))
@@ -97,14 +97,14 @@ EMPTY_REPLY_NUDGE = HumanMessage(
 
 
 def reasoning_node(state: AgentState):
-    # Always prepend the system prompt so every caller (CLI, Streamlit) gets the same instructions.
+    
     messages = state["messages"]
     if not messages or not isinstance(messages[0], SystemMessage):
         messages = [SYSTEM_PROMPT, *messages]
 
     response = llmWithTools.invoke(messages)
 
-    # Small local models sometimes return neither text nor a tool call. Retry once with a nudge.
+    
     if not message_text(response).strip() and not getattr(response, "tool_calls", None):
         response = llmWithTools.invoke([*messages, EMPTY_REPLY_NUDGE])
 
