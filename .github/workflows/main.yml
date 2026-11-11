@@ -24,8 +24,10 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             set -e
+            echo "Connected as $(whoami) on $(hostname) | home=$HOME"
+            ls -la "$HOME"
             export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
-            cd /home/ubuntu/Agentic
+            cd "$HOME/Agentic"
             git pull origin main
             source .venv/bin/activate
             uv pip install -r requirements.txt
