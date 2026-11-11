@@ -20,82 +20,71 @@ st.set_page_config(
     layout="wide",
 )
 
-from src import chat_store
+from src import auth_store, chat_store
 
 
 @st.cache_resource
 def _init_chat_store():
     chat_store.init_db()
+    auth_store.init_users()
     return True
 
 
 _init_chat_store()
 
-
-def auth_configured() -> bool:
-    """True when an OIDC provider is set up under [auth] in .streamlit/secrets.toml."""
-    try:
-        return "auth" in st.secrets
-    except Exception:
-        return False
+# Set ALLOW_SIGNUP=false in .env to stop new registrations once your team has accounts.
+ALLOW_SIGNUP = os.getenv("ALLOW_SIGNUP", "true").strip().lower() not in {"0", "false", "no"}
 
 
-def _env_set(name):
-    """Comma-separated env var as a lower-cased set, e.g. ALLOWED_EMAILS=a@x.com,b@x.com."""
-    return {v.strip().lower() for v in os.getenv(name, "").split(",") if v.strip()}
+def sign_out():
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
 
 
-AUTH_ENABLED = auth_configured()
-# Fail closed: sign-in is required unless REQUIRE_AUTH=false is set explicitly (local development only).
-REQUIRE_AUTH = os.getenv("REQUIRE_AUTH", "true").strip().lower() not in {"0", "false", "no"}
-ALLOWED_EMAILS = _env_set("ALLOWED_EMAILS")
-ALLOWED_EMAIL_DOMAINS = {d.lstrip("@") for d in _env_set("ALLOWED_EMAIL_DOMAINS")}
-ADMIN_EMAILS = _env_set("ADMIN_EMAILS")
-DEV_USER_ID = "local-dev"
+def auth_page():
+    _, center, _ = st.columns([1, 1.2, 1])
+    with center:
+        st.space("large")
+        st.title(":material/ac_unit: FDE Dispatch", text_alignment="center")
+        st.caption("Cold-chain operations assistant", text_alignment="center")
 
+        tabs = ["Sign in", "Sign up"] if ALLOW_SIGNUP else ["Sign in"]
+        mode = st.segmented_control("Mode", tabs, default="Sign in", label_visibility="collapsed", width="stretch")
 
-def is_allowed(email: str) -> bool:
-    """Signing in only proves who someone is; this decides whether they may use the app."""
-    return email in ALLOWED_EMAILS or email.rpartition("@")[2] in ALLOWED_EMAIL_DOMAINS
-
-
-def refuse(message):
-    st.space("large")
-    st.error(message, icon=":material/block:")
-    with st.container(horizontal=True, horizontal_alignment="center"):
-        st.button("Sign out", icon=":material/logout:", on_click=st.logout)
+        if mode == "Sign up":
+            with st.form("signup"):
+                username = st.text_input("Username", autocomplete="username")
+                password = st.text_input("Password", type="password", autocomplete="new-password")
+                confirm = st.text_input("Confirm password", type="password", autocomplete="new-password")
+                submitted = st.form_submit_button("Create account", type="primary", width="stretch")
+            if submitted:
+                try:
+                    user = auth_store.create_user(username, password, confirm)
+                except auth_store.AuthError as e:
+                    st.error(str(e), icon=":material/error:")
+                else:
+                    st.session_state.auth_user = user
+                    st.rerun()
+        else:
+            with st.form("signin"):
+                username = st.text_input("Username", autocomplete="username")
+                password = st.text_input("Password", type="password", autocomplete="current-password")
+                submitted = st.form_submit_button("Sign in", type="primary", width="stretch")
+            if submitted:
+                user = auth_store.verify_user(username, password)
+                if user is None:
+                    st.error("Incorrect username or password.", icon=":material/error:")
+                else:
+                    st.session_state.auth_user = user
+                    st.rerun()
     st.stop()
 
-if REQUIRE_AUTH and not AUTH_ENABLED:
-    st.error(
-        "Sign-in is required (REQUIRE_AUTH=true) but no identity provider is configured. "
-        "Add an [auth] section to .streamlit/secrets.toml.",
-        icon=":material/lock:",
-    )
-    st.stop()
 
-if AUTH_ENABLED and not st.user.is_logged_in:
-    st.space("large")
-    st.title(":material/ac_unit: FDE Dispatch", text_alignment="center")
-    st.caption("Cold-chain operations assistant. Sign in with your work account to continue.", text_alignment="center")
-    with st.container(horizontal=True, horizontal_alignment="center"):
-        st.button("Sign in", icon=":material/login:", type="primary", on_click=st.login)
-    st.stop()
+if "auth_user" not in st.session_state:
+    auth_page()
 
-if AUTH_ENABLED:
-    email = (st.user.get("email") or "").strip().lower()
-    if not email or st.user.get("email_verified") is False:
-        refuse("Your account has no verified email address, so access can't be checked.")
-    if not (ALLOWED_EMAILS or ALLOWED_EMAIL_DOMAINS):
-        refuse("Access is not configured: set ALLOWED_EMAIL_DOMAINS or ALLOWED_EMAILS in .env.")
-    if not is_allowed(email):
-        refuse(f"{email} is not allowed to use FDE Dispatch. Ask an administrator for access.")
-    user_id = email
-    is_admin = email in ADMIN_EMAILS
-else:
-    # Only reachable with REQUIRE_AUTH=false: a single local developer who is also the admin.
-    user_id = DEV_USER_ID
-    is_admin = True
+user_id = st.session_state.auth_user["username"]
+is_admin = st.session_state.auth_user["is_admin"]
 
 # Stable identity used to scope chats and stamp the audit log.
 if st.session_state.get("user_id") not in (None, user_id):
@@ -130,11 +119,8 @@ page = st.navigation(pages, position="top")
 with st.sidebar:
     st.markdown("#### :material/ac_unit: FDE Dispatch")
     st.caption(f"Cold-chain operations · :material/memory: `{llm_name}`")
-    if AUTH_ENABLED:
-        with st.container(horizontal=True, vertical_alignment="center"):
-            st.caption(f":material/account_circle: {st.user.get('name') or user_id}")
-            st.button("Sign out", icon=":material/logout:", type="tertiary", on_click=st.logout)
-    else:
-        st.badge("Dev mode: sign-in not configured", icon=":material/warning:", color="orange")
+    with st.container(horizontal=True, vertical_alignment="center"):
+        st.caption(f":material/account_circle: {user_id}")
+        st.button("Sign out", icon=":material/logout:", type="tertiary", on_click=sign_out)
 
 page.run()
