@@ -26,7 +26,7 @@
 
 ---
 
-## 💡 The problem
+## The problem
 
 Temperature-sensitive goods such as fresh food, vaccines and medicines are lost when a truck runs a few degrees too warm or gets stuck at a congested port. To act in time, a dispatcher has to check three separate sources:
 
@@ -40,13 +40,13 @@ Where is each truck? How cold is the cargo? How risky is the route?
 </td>
 <td width="33%" valign="top">
 
-### 🌦️ Conditions
+###  Conditions
 Is weather about to disrupt the corridor?
 
 </td>
 <td width="33%" valign="top">
 
-### 📘 Policy
+###  Policy
 What does the SOP (Standard Operating Procedure) require when a threshold is breached?
 
 </td>
@@ -60,7 +60,7 @@ What does the SOP (Standard Operating Procedure) require when a threshold is bre
 
 ---
 
-## 📸 Screenshots
+##  Screenshots
 
 <div align="center">
 
@@ -82,13 +82,13 @@ What does the SOP (Standard Operating Procedure) require when a threshold is bre
 
 ---
 
-## ✨ Key features
+##  Key features
 
 <table>
 <tr>
 <td width="50%" valign="top">
 
-### 🤖 Agentic chat
+###  Agentic chat
 - A **LangGraph** reasoning loop picks which tools to call, in what order, and when it has enough evidence to answer
 - **Transparent steps**: SQL with its results table, weather location on a map, retrieved SOP passages
 - Chat history per user: **search, rename, delete, export to Markdown**
@@ -98,12 +98,12 @@ What does the SOP (Standard Operating Procedure) require when a threshold is bre
 </td>
 <td width="50%" valign="top">
 
-### 📊 Fleet overview
+###  Fleet overview
 - KPI cards, a **risk-coloured fleet map**, risk breakdown and temperature trend
 - **"Needs attention"** table that applies the SOP rules automatically:
-  - 🌡️ cargo above **4 °C**: temperature breach
-  - 🚢 port congestion above **7**: divert
-  - 🚨 *High Risk* **and** delay probability above **0.65**: Tier 2 escalation
+  -  cargo above **4 °C**: temperature breach
+  -  port congestion above **7**: divert
+  -  *High Risk* **and** delay probability above **0.65**: Tier 2 escalation
 - Falls back to the CSV dataset if the database is unreachable
 
 </td>
@@ -111,7 +111,7 @@ What does the SOP (Standard Operating Procedure) require when a threshold is bre
 <tr>
 <td width="50%" valign="top">
 
-### 🛡️ Audit log
+### Audit log
 - Every tool request, tool result and answer is logged with user and session
 - Activity timeline, tool-usage chart, filters, search, full payload view
 - **CSV export**; visible to **admins only**
@@ -119,7 +119,7 @@ What does the SOP (Standard Operating Procedure) require when a threshold is bre
 </td>
 <td width="50%" valign="top">
 
-### 🔄 Swap any model
+###  Swap any model
 - **LLM**: Gemini, OpenAI GPT-4o, or fully local **Ollama**, chosen with one setting
 - **Embeddings**: local Hugging Face (Qwen3), Gemini or OpenAI
 - Each embedding provider gets its own Pinecone index, so vectors from different models never mix
@@ -128,7 +128,7 @@ What does the SOP (Standard Operating Procedure) require when a threshold is bre
 </tr>
 </table>
 
-### 🧰 The agent's three tools
+###  The agent's three tools
 
 | Tool | Source | What it does |
 |:--|:--|:--|
@@ -138,7 +138,7 @@ What does the SOP (Standard Operating Procedure) require when a threshold is bre
 
 ---
 
-## 🏗 Architecture
+##  Architecture
 
 ```mermaid
 flowchart LR
@@ -160,7 +160,7 @@ flowchart LR
 ```
 
 <details>
-<summary><b>🔍 How a single question is answered, step by step</b></summary>
+<summary><b> How a single question is answered, step by step</b></summary>
 <br/>
 
 1. The user asks a question in **Dispatch**.
@@ -173,42 +173,42 @@ flowchart LR
 
 ---
 
-## 🔒 Security design
+##  Security design
 
 > [!IMPORTANT]
 > **Defence in depth:** letting an LLM write SQL is risky, so several independent layers protect the data. Even if one fails, the others still hold.
 
-| | Layer | Protection |
-|:-:|:--|:--|
-| 1️⃣ | **Prompt scope** | Limits the agent to cold-chain topics and tells it to ignore requests to change its role |
-| 2️⃣ | **SQL guard** · [`sql_guard.py`](src/sql_guard.py) | Parses each query into a syntax tree and allows **one `SELECT` only**. Blocks `INSERT`, `UPDATE`, `DELETE`, `MERGE`, `DROP`, `EXEC` and `SELECT INTO`, and allows only the approved view |
-| 3️⃣ | **View abstraction** | The agent never sees the raw table, only a clean view with renamed columns |
-| 4️⃣ | **Least-privilege logins** · [`security.sql`](scripts/security.sql) | Three separate SQL logins: **agent** (read the view), **audit writer** (insert only), **audit reader** (read the log only). The script ends by checking every permission |
-| 5️⃣ | **Tamper-resistant audit** | The process that writes the log cannot read, change or delete it |
-| 6️⃣ | **Query limits** | Query timeout, at most 5,000 rows fetched, 10 preview rows sent to the LLM |
-| 7️⃣ | **Authentication** | Salted **scrypt** password hashes, constant-time comparison, protection against discovering usernames by timing |
-| 8️⃣ | **Authorization** | Audit page for admins only; each chat can be opened only by its owner |
-| 9️⃣ | **Secrets** | All credentials in `.env`, which git ignores; template in `.env.example` |
+ Layer | Protection |
+:--|:--|
+ **Prompt scope** | Limits the agent to cold-chain topics and tells it to ignore requests to change its role |
+ **SQL guard** · [`sql_guard.py`](src/sql_guard.py) | Parses each query into a syntax tree and allows **one `SELECT` only**. Blocks `INSERT`, `UPDATE`, `DELETE`, `MERGE`, `DROP`, `EXEC` and `SELECT INTO`, and allows only the approved view |
+ **View abstraction** | The agent never sees the raw table, only a clean view with renamed columns |
+ **Least-privilege logins** · [`security.sql`](scripts/security.sql) | Three separate SQL logins: **agent** (read the view), **audit writer** (insert only), **audit reader** (read the log only). The script ends by checking every permission |
+ **Tamper-resistant audit** | The process that writes the log cannot read, change or delete it |
+ **Query limits** | Query timeout, at most 5,000 rows fetched, 10 preview rows sent to the LLM |
+ **Authentication** | Salted **scrypt** password hashes, constant-time comparison, protection against discovering usernames by timing |
+ **Authorization** | Audit page for admins only; each chat can be opened only by its owner |
+ **Secrets** | All credentials in `.env`, which git ignores; template in `.env.example` |
 
 ---
 
-## 🧰 Tech stack
+##  Tech stack
 
 | Layer | Technology |
 |:--|:--|
-| 🧠 **Agent orchestration** | LangGraph · LangChain |
-| 💬 **LLMs** | Google Gemini · OpenAI GPT-4o · Ollama (local) |
-| 📚 **Retrieval (RAG)** | Pinecone · sentence-transformers (Qwen3-Embedding) · Gemini / OpenAI embeddings |
-| 🗄️ **Data** | Microsoft SQL Server · SQLAlchemy · pyodbc · SQLite |
-| 🛡️ **SQL safety** | sqlglot (T-SQL parsing into a syntax tree) |
-| 🌐 **External API** | Open-Meteo (live weather) |
-| 🖥️ **Frontend** | Streamlit multipage app · Altair charts · maps |
-| 🔧 **Processing** | pandas · pypdf · openpyxl |
-| 🚀 **CI/CD** | GitHub Actions → AWS EC2 (SSH) · systemd · uv |
+|  **Agent orchestration** | LangGraph · LangChain |
+|  **LLMs** | Google Gemini · OpenAI GPT-4o · Ollama (local) |
+|  **Retrieval (RAG)** | Pinecone · sentence-transformers (Qwen3-Embedding) · Gemini / OpenAI embeddings |
+|  **Data** | Microsoft SQL Server · SQLAlchemy · pyodbc · SQLite |
+|  **SQL safety** | sqlglot (T-SQL parsing into a syntax tree) |
+|  **External API** | Open-Meteo (live weather) |
+|  **Frontend** | Streamlit multipage app · Altair charts · maps |
+|  **Processing** | pandas · pypdf · openpyxl |
+|  **CI/CD** | GitHub Actions → AWS EC2 (SSH) · systemd · uv |
 
 ---
 
-## 🚀 Quick start
+##  Quick start
 
 > [!TIP]
 > **Prerequisites:** Python 3.10+, SQL Server with **ODBC Driver 18**, a free **Pinecone** account, and one LLM option: a Gemini key, an OpenAI key, or **Ollama** running locally.
@@ -239,7 +239,7 @@ Then open [`scripts/security.sql`](scripts/security.sql) in SSMS or Azure Data S
 python scripts/ingest_sop_pinecone.py
 ```
 
-**5. Run** 🎉
+**5. Run** 
 ```bash
 streamlit run src/frontend.py
 ```
@@ -251,7 +251,7 @@ Open **http://localhost:8501**, choose **Sign up**, and create your account.
 
 ---
 
-## 🔧 Configuration
+## Configuration
 
 <details>
 <summary><b>All <code>.env</code> settings</b> (click to expand)</summary>
@@ -279,7 +279,7 @@ Open **http://localhost:8501**, choose **Sign up**, and create your account.
 
 ---
 
-## 📁 Project structure
+##  Project structure
 
 <details>
 <summary><b>Folder layout</b> (click to expand)</summary>
@@ -319,7 +319,7 @@ Open **http://localhost:8501**, choose **Sign up**, and create your account.
 
 ---
 
-## ☁️ Deployment
+##  Deployment
 
 A manually triggered **GitHub Actions** workflow ([`main.yml`](.github/workflows/main.yml)) deploys to **AWS EC2**:
 
@@ -331,20 +331,20 @@ The EC2 host and SSH key are stored as GitHub secrets and never appear in the co
 
 ---
 
-## 💬 Try asking
+##  Try asking
 
-| | Question | Tools used |
-|:-:|:--|:--|
-| 📡 | *How many shipments are currently classified as High Risk?* | Telemetry |
-| 🌡️ | *Show the 5 hottest cargo readings and where those trucks are.* | Telemetry |
-| 🚨 | *Which shipments need a Tier 2 escalation?* | Telemetry + SOP |
-| 🌦️ | *What's the weather at 33.77, -118.19? Will it disrupt the corridor?* | Weather |
-| 📘 | *What does the SOP say when fresh produce goes above 4 °C?* | SOP |
-| 🚢 | *When should a truck be diverted from a congested port?* | SOP + Telemetry |
+| Question | Tools used |
+|:--|:--|
+|   *How many shipments are currently classified as High Risk?* | Telemetry |
+|  *Show the 5 hottest cargo readings and where those trucks are.* | Telemetry |
+|  *Which shipments need a Tier 2 escalation?* | Telemetry + SOP |
+|  *What's the weather at 33.77, -118.19? Will it disrupt the corridor?* | Weather |
+|  *What does the SOP say when fresh produce goes above 4 °C?* | SOP |
+|  *When should a truck be diverted from a congested port?* | SOP + Telemetry |
 
 ---
 
-## 📚 What I learned
+##  What I learned
 
 - **Tool-calling agents with LangGraph**: state, conditional edges, conversation memory, and streaming each step to the UI.
 - **Making LLM-generated SQL safe**: validating the syntax tree rather than matching text, backed by database permissions as a second line of defence.
