@@ -356,7 +356,7 @@ The EC2 host and SSH key are stored as GitHub secrets and never appear in the co
 
 <div align="center">
 
-## 👤 Author **Nitish Kumar Yadav**
+##  **Nitish Kumar Yadav**
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/initishkumaryadav/)
 [![GitHub](https://img.shields.io/badge/GitHub-Follow-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/initishkumaryadav)
 [![Portfolio](https://img.shields.io/badge/Portfolio-Visit-5FA8C8?style=for-the-badge&logo=googlechrome&logoColor=white)](https://initishkumaryadav)
