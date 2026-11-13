@@ -12,7 +12,7 @@ _WRITE_NODES = (
 
 
 class UnsafeQueryError(ValueError):
-    """The query is not a single read-only SELECT against the allowed view."""
+    pass
 
 
 def validate_select(sql: str) -> str:

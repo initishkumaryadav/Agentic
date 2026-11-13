@@ -11,7 +11,6 @@ DB_PATH = Path(os.getenv("CHAT_DB_PATH", projectRoot / "data" / "chat_sessions.d
 
 
 class ChatOwnershipError(PermissionError):
-    """A session id that belongs to a different user."""
 
 
 def _connect():

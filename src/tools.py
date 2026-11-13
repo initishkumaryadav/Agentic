@@ -17,18 +17,8 @@ from src.ui_common import agent_engine
 from src.sql_guard import UnsafeQueryError, validate_select
 
 load_dotenv(dotenv_path=project_root / ".env")
-
-# Rows shown to the model, and how many rows we count before saying "more than N".
 PREVIEW_ROWS = 10
 COUNT_LIMIT = 5000
-
-
-# --- Embeddings ------------------------------------------------------------------------
-# One place that decides which embedding model and Pinecone index to use. Both the SOP search
-# below and scripts/ingest_sop_pinecone.py call this, so documents and questions are always
-# embedded by the same model into the same index.
-# Embeddings_model: LOCAL (default) | GEMINI | OPENAI. Each provider has its own index, because
-# vectors from different models can't be compared. PINECONE_INDEX overrides the index name.
 
 DEFAULT_INDEX = {
     "LOCAL": "index-local",
@@ -73,8 +63,6 @@ def _local_device() -> str:
 
 
 def resolve_local_model(name: str) -> str:
-    """Path to the model if it's already on disk, so loading needs no network.
-    Otherwise the Hub name, and the model is downloaded on first use."""
     if Path(name).exists():
         return name
     try:
@@ -106,7 +94,6 @@ def build_embeddings(settings: EmbeddingSettings | None = None):
 
     from langchain_huggingface import HuggingFaceEmbeddings
     return HuggingFaceEmbeddings(
-        # A cached model loads from its folder: no Hub check, so no hang when huggingface.co is unreachable.
         model_name=resolve_local_model(settings.model),
         model_kwargs={"device": _local_device()},
         encode_kwargs={"normalize_embeddings": True},
@@ -117,7 +104,6 @@ def _load_embeddings(settings):
     try:
         import streamlit as st
         if st.runtime.exists():
-            # Load model weights once per server process, not once per rerun.
             return st.cache_resource(show_spinner=False)(build_embeddings)(settings)
     except ImportError:
         pass
@@ -126,7 +112,6 @@ def _load_embeddings(settings):
 
 @lru_cache(maxsize=1)
 def get_retriever():
-    """Built on first SOP search, so importing this module stays fast and needs no credentials."""
     if not os.getenv("PINECONE_API_KEY"):
         raise ValueError("PINECONE_API_KEY must be set in the .env file")
     settings = embedding_settings()
@@ -136,7 +121,6 @@ def get_retriever():
 
 
 def format_rows(columns, rows) -> str:
-    """Tool output: total match count first, so the model never mistakes the preview for the full result."""
     if not rows:
         return "No records matched the query criteria."
 
@@ -177,8 +161,6 @@ def query_telemetry_db(sql_query: str) -> str:
 
     return format_rows(columns, rows)
 
-
-# WMO weather codes that disrupt road and port operations.
 _SEVERE_CODES = {
     45: "fog", 48: "freezing fog", 56: "freezing drizzle", 57: "freezing drizzle",
     65: "heavy rain", 66: "freezing rain", 67: "freezing rain", 71: "snow", 73: "snow", 75: "heavy snow",
@@ -189,7 +171,6 @@ _HIGH_CODES = {66, 67, 75, 86, 95, 96, 99}
 
 
 def weather_disruption(gusts_kmh: float, precip_mm: float, code: int) -> tuple[str, list[str]]:
-    """Rule-based estimate of how much the weather may slow a corridor, with the reasons."""
     reasons = []
     if gusts_kmh >= 40:
         reasons.append(f"gusts {gusts_kmh:.0f} km/h")

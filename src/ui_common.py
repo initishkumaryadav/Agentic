@@ -162,7 +162,6 @@ def load_fleet():
 
 
 def sop_flags(df):
-    """Adds one boolean column per SOP rule plus a readable summary of the rules that fired."""
     out = df.copy()
     out["Temp_Breach"] = out["Current_Temperature_C"] > TEMP_BREACH_C
     out["Port_Diversion"] = out["Port_Congestion_Level"] > PORT_CONGESTION_LIMIT

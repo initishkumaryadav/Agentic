@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import sys
+import time
 from numbers import Integral
 from pathlib import Path
 
@@ -20,8 +21,6 @@ projectRoot = script_dir.parent
 if str(projectRoot) not in sys.path:
     sys.path.insert(0, str(projectRoot))
 load_dotenv(projectRoot / ".env")
-
-# Same settings the app uses to query, so vectors and questions share one model and index.
 from src.tools import build_embeddings, embedding_settings
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
@@ -34,8 +33,6 @@ HASH_CACHE_FILE = cache_dir / "ingestion_hash_cache.json"
 
 
 def load_cache() -> dict:
-    """{index_name: {"model": str, "files": {file_name: md5}}}. Older flat caches are discarded,
-    because they don't say which index or model the files went into."""
     if not HASH_CACHE_FILE.exists():
         return {}
     try:
@@ -69,8 +66,6 @@ if index_cache.get("model") != settings.model:
 hash_cache = index_cache["files"]
 
 def pinecone_call(fn, what, attempts=3):
-    """Retries a Pinecone control-plane call on network errors; exits with one clear line if it keeps failing."""
-    import time
     for attempt in range(1, attempts + 1):
         try:
             return fn()
@@ -105,7 +100,7 @@ if INDEX_NAME not in existing_indexes:
         metric="cosine",
         spec=ServerlessSpec(cloud="aws", region="us-east-1"),
     )
-    hash_cache.clear()  # a new index is empty whatever the cache says
+    hash_cache.clear()  
 
 index_client = pc.Index(INDEX_NAME)
 vector_store = PineconeVectorStore(index=index_client, embedding=embeddings)
@@ -116,14 +111,11 @@ def chunk_id_prefix(file_name: str) -> str:
 
 
 def delete_file_vectors(file_name: str) -> None:
-    """Removes every chunk of a file. Chunk ids are '<file>-chunk-<n>', so list by prefix
-    (works on serverless indexes, which can't delete by metadata filter)."""
     try:
         for id_batch in index_client.list(prefix=chunk_id_prefix(file_name)):
             if id_batch:
                 index_client.delete(ids=list(id_batch))
     except Exception as list_error:
-        # Pod-based indexes don't support list(); they do support delete by metadata.
         try:
             index_client.delete(filter={"source_file": {"$eq": file_name}})
         except Exception as filter_error:
@@ -221,7 +213,6 @@ for file_name, file_path in current_files.items():
     cache_modified = True
 
     try:
-        # Remove the previous version first, so a shorter file leaves no stale chunks behind.
         delete_file_vectors(file_name)
 
         chunks = parse_and_chunk_document(file_path)
@@ -244,7 +235,7 @@ for file_name, file_path in current_files.items():
                 documents=chunks[i:i + batch_size],
                 ids=explicit_ids[i:i + batch_size],
             )
-        updated_files[file_name] = file_hash  # only cache files that fully succeeded
+        updated_files[file_name] = file_hash 
 
     except Exception as e:
         print(f"Error during ingestion of {file_name}: {e}")
