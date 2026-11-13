@@ -215,8 +215,8 @@ flowchart LR
 
 **1. Clone and install**
 ```bash
-git clone <your-repo-url>
-cd <repo-folder>
+git clone https://github.com/initishkumaryadav/Agentic.git
+cd Agentic
 python -m venv .venv
 .venv\Scripts\activate          
 
