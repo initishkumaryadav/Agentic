@@ -11,6 +11,7 @@ DB_PATH = Path(os.getenv("CHAT_DB_PATH", projectRoot / "data" / "chat_sessions.d
 
 
 class ChatOwnershipError(PermissionError):
+    pass
 
 
 def _connect():
