@@ -186,7 +186,7 @@ flowchart LR
  **Least-privilege logins** · [`security.sql`](scripts/security.sql) | Three separate SQL logins: **agent** (read the view), **audit writer** (insert only), **audit reader** (read the log only). The script ends by checking every permission |
  **Tamper-resistant audit** | The process that writes the log cannot read, change or delete it |
  **Query limits** | Query timeout, at most 5,000 rows fetched, 10 preview rows sent to the LLM |
- **Authentication** | Salted **scrypt** password hashes, constant-time comparison, protection against discovering usernames by timing |
+ **Authentication** · [`src/auth/`](src/auth/) | Salted **scrypt** password hashes, constant-time comparison, protection against discovering usernames by timing. **"Remember me"** tokens and **password reset codes** are stored only as SHA-256 hashes; reset codes are single-use, expire after 30 minutes and allow 5 attempts. Changing a password signs out every remembered browser |
  **Authorization** | Audit page for admins only; each chat can be opened only by its owner |
  **Secrets** | All credentials in `.env`, which git ignores; template in `.env.example` |
 
@@ -247,6 +247,7 @@ Open **http://localhost:8501**, choose **Sign up**, and create your account.
 
 > [!NOTE]
 > The **first account** created becomes the **admin** and can see the Audit log. Set `ALLOW_SIGNUP=false` once your team is registered.
+> If someone forgets their password, run `python scripts/reset_password.py <username>` to issue a one-time reset code they can enter on the sign-in page.
 > To try the agent without the UI, run `python src/orchestrator.py` for a terminal chat.
 
 ---
@@ -274,6 +275,7 @@ Open **http://localhost:8501**, choose **Sign up**, and create your account.
 | `Local_Embedding_Model` | Hugging Face model for `LOCAL` | `Qwen/Qwen3-Embedding-4B` |
 | `EMBEDDING_DEVICE` | `auto`, `cpu` or `cuda` | `auto` |
 | `ALLOW_SIGNUP` | `false` turns off new registrations | `true` |
+| `REMEMBER_ME_DAYS` | How long "Remember me" keeps a browser signed in (`0` turns it off) | `30` |
 
 </details>
 
@@ -292,8 +294,15 @@ Open **http://localhost:8501**, choose **Sign up**, and create your account.
 │   ├── orchestrator.py         # LangGraph agent (reasoner ⇄ tools), LLM selection
 │   ├── tools.py                # The 3 agent tools + embedding / Pinecone setup
 │   ├── sql_guard.py            # Allows only read-only SELECT on the approved view
-│   ├── auth_store.py           # User accounts, scrypt password hashing
 │   ├── chat_store.py           # SQLite chat sessions, messages, feedback
+│   ├── auth/                   # Authentication core (no UI code)
+│   │   ├── crypto.py           # scrypt hashing, constant-time compare, tokens, reset codes
+│   │   ├── users.py            # Sign up, sign in, username timing protection
+│   │   ├── passwords.py        # Change password, admin-issued reset codes
+│   │   ├── remember.py         # "Remember me" tokens (stored as SHA-256 hashes)
+│   │   ├── db.py               # Users, tokens and reset-code tables
+│   │   └── config.py           # Password rules, signup switch, expiry settings
+│   ├── ui/auth/                # Login page, session handling, cookies, account menu
 │   ├── ui_common.py            # DB connections, audit writer, SOP rules, helpers
 │   ├── Prompt/systemPrompt.txt # Agent instructions and scope rules
 │   └── app_pages/
@@ -304,6 +313,7 @@ Open **http://localhost:8501**, choose **Sign up**, and create your account.
 │   ├── ingest_data.py          # CSV → SQL Server (dbo.RAW_DATA)
 │   ├── ingest_sop_pinecone.py  # Chunks and embeds SOP docs into Pinecone
 │   ├── security.sql            # View, audit table, least-privilege logins + checks
+│   ├── reset_password.py       # Admin: issue a one-time password reset code
 │   └── install_odbc_driver.sh  # ODBC Driver 18 setup for Linux servers
 ├── data/
 │   ├── raw/                    # Logistics telemetry dataset (32k rows)
